@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+
+{% block title %}Matches — Hold ’Em Together{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div><strong>Recent matches</strong> <span class="muted">(latest 100)</span></div>
+  </div>
+
+  {% if not matches %}
+    <p class="muted" style="margin-top: 12px;">No matches yet. Run a demo match from a bot page.</p>
+  {% else %}
+    <table style="margin-top: 16px;">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Created</th>
+          <th>Seats</th>
+          <th>Hands</th>
+          <th>Seed</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in matches %}
+          <tr>
+            <td><a href="{{ url_for('web.match_detail', match_id=m.id) }}">{{ m.id }}</a></td>
+            <td class="muted">{{ m.created_at }}</td>
+            <td>{{ m.seats }}</td>
+            <td>{{ m.hands }}</td>
+            <td class="muted">{{ m.seed }}</td>
+            <td>{{ m.status }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

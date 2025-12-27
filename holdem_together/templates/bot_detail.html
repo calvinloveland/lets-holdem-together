@@ -1,0 +1,321 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ bot.name }} — Hold 'Em Together{% endblock %}
+
+{% block content %}
+  <!-- Loading overlay for demo matches -->
+  <div id="demo-loading" class="loading-overlay hidden">
+    <div class="loading-content">
+      <div class="loading-spinner"></div>
+      <div class="loading-title">Running Demo Match</div>
+      <div class="loading-message">Playing 50 hands against opponents...</div>
+      <div class="loading-progress">
+        <div class="loading-progress-bar"></div>
+      </div>
+      <div class="loading-hint">This may take 30-60 seconds</div>
+    </div>
+  </div>
+
+  <div class="row" style="justify-content: space-between;">
+    <div>
+      <h3 style="margin: 0;">{{ bot.name }}</h3>
+      <div class="muted">User: {{ bot.user.name }} · Status: {{ bot.status }}</div>
+    </div>
+  </div>
+
+  {% if msg %}
+    <p class="{% if bot.status in ['invalid'] %}error{% else %}ok{% endif %}"><strong>{{ msg }}</strong></p>
+  {% endif %}
+
+  {% if bot.last_error %}
+    <div class="card">
+      <div class="error"><strong>Last error</strong>
+
+{{ bot.last_error }}
+      </div>
+    </div>
+  {% endif %}
+
+  <form method="post" style="margin-top: 12px;" id="bot-form">
+    <input type="hidden" name="action" value="save" />
+    <div class="row" style="margin-bottom: 8px;">
+      <button class="btn" type="submit" onclick="this.form.action.value='save'">Save</button>
+      <button class="btn" type="submit" onclick="this.form.action.value='validate'">Validate</button>
+      <button class="btn" type="submit" id="demo-btn" onclick="this.form.action.value='demo'; showDemoLoading();">Run demo match</button>
+      <button class="btn" type="submit" onclick="this.form.action.value='submit'">Submit to tournament</button>
+      <span class="muted">(Demo runs a 50-hand match.)</span>
+    </div>
+
+    <div id="code-status" class="code-status checking">Checking code...</div>
+    <textarea id="code-editor" name="code">{{ bot.code }}</textarea>
+  </form>
+
+  {% if demo %}
+    <div class="card" style="margin-top: 12px;">
+      <div><strong>Demo result</strong></div>
+      {% if demo.ok %}
+        <div class="ok">OK</div>
+      {% else %}
+        <div class="error">{{ demo.error }}</div>
+      {% endif %}
+
+      {% if demo.result %}
+        <div class="muted" style="margin-top: 8px;">Table:</div>
+        <pre>{{ demo.table }}</pre>
+
+        {% if demo.logs %}
+          <div class="muted">Bot logs (latest):</div>
+          <pre>{{ demo.logs }}</pre>
+        {% endif %}
+
+        <div class="muted">Match summary:</div>
+        <pre>{{ demo.result }}</pre>
+
+        {% if demo.result.match_id %}
+          <div style="margin-top: 8px;">
+            <a class="btn" href="{{ url_for('web.match_detail', match_id=demo.result.match_id) }}">View match</a>
+          </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <!-- Help Panel -->
+  <div class="help-panel">
+    <h4>📖 Bot Development Guide</h4>
+    <p class="muted">Your bot must define a <code>decide_action(game_state: dict) -> dict</code> function.</p>
+
+    <div class="collapsible">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">▶ Game State Reference</div>
+      <div class="collapsible-content">
+        <table class="game-state-ref">
+          <tr><td><code>game_state["hole_cards"]</code></td><td>Your cards, e.g. <code>["Ah", "Kd"]</code></td></tr>
+          <tr><td><code>game_state["board_cards"]</code></td><td>Community cards, e.g. <code>["Ts", "Jc", "Qh"]</code></td></tr>
+          <tr><td><code>game_state["street"]</code></td><td><code>"preflop"</code>, <code>"flop"</code>, <code>"turn"</code>, or <code>"river"</code></td></tr>
+          <tr><td><code>game_state["pot"]</code></td><td>Current pot size (integer)</td></tr>
+          <tr><td><code>game_state["stacks"]</code></td><td>List of stack sizes per seat</td></tr>
+          <tr><td><code>game_state["actor_seat"]</code></td><td>Your seat number</td></tr>
+          <tr><td><code>game_state["legal_actions"]</code></td><td>List of valid actions you can take</td></tr>
+          <tr><td><code>game_state["hand_strength"]["category"]</code></td><td>e.g. <code>"pair"</code>, <code>"flush"</code>, <code>"straight"</code></td></tr>
+          <tr><td><code>game_state["hand_strength"]["equity_estimate"]</code></td><td>Win probability (0.0 to 1.0)</td></tr>
+          <tr><td><code>game_state["contributed_this_street"]</code></td><td>Chips each player put in this street</td></tr>
+          <tr><td><code>game_state["contributed_total"]</code></td><td>Total chips each player has put in</td></tr>
+          <tr><td><code>game_state["action_history"]</code></td><td>List of previous actions in this hand</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="collapsible">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">▶ Return Values</div>
+      <div class="collapsible-content">
+        <p>Your function must return a dictionary with a <code>"type"</code> key:</p>
+        <ul>
+          <li><code>{"type": "fold"}</code> — Give up the hand</li>
+          <li><code>{"type": "check"}</code> — Pass (when no bet to call)</li>
+          <li><code>{"type": "call"}</code> — Match the current bet</li>
+          <li><code>{"type": "raise", "amount": 100}</code> — Raise to specified amount</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="collapsible">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">▶ Example: Tight-Aggressive Bot</div>
+      <div class="collapsible-content">
+<pre>def decide_action(game_state: dict) -> dict:
+    equity = game_state["hand_strength"]["equity_estimate"]
+    pot = game_state["pot"]
+    my_stack = game_state["stacks"][game_state["actor_seat"]]
+    
+    # Premium hands: raise aggressively
+    if equity > 0.75:
+        raise_amt = min(pot * 2, my_stack)
+        return {"type": "raise", "amount": int(raise_amt)}
+    
+    # Good hands: call or small raise
+    elif equity > 0.55:
+        if pot < my_stack // 4:
+            return {"type": "raise", "amount": pot}
+        return {"type": "call"}
+    
+    # Marginal hands: check or fold
+    elif equity > 0.35:
+        return {"type": "check"}
+    
+    # Weak hands: fold
+    return {"type": "fold"}</pre>
+      </div>
+    </div>
+
+    <div class="collapsible">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">▶ Example: Position-Aware Bot</div>
+      <div class="collapsible-content">
+<pre>def decide_action(game_state: dict) -> dict:
+    equity = game_state["hand_strength"]["equity_estimate"]
+    street = game_state["street"]
+    actor = game_state["actor_seat"]
+    dealer = game_state["dealer_seat"]
+    
+    # Check if we're in late position (near dealer)
+    num_players = len(game_state["stacks"])
+    position = (actor - dealer) % num_players
+    in_position = position >= num_players - 2
+    
+    # Play looser in position
+    threshold = 0.4 if in_position else 0.5
+    
+    if equity > threshold + 0.2:
+        return {"type": "raise", "amount": game_state["pot"]}
+    elif equity > threshold:
+        return {"type": "call"}
+    elif street == "preflop" and in_position:
+        return {"type": "call"}  # See more flops in position
+    
+    return {"type": "check"}</pre>
+      </div>
+    </div>
+
+    <div class="collapsible">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">▶ Example: Bluffing Bot</div>
+      <div class="collapsible-content">
+<pre>import random
+
+def decide_action(game_state: dict) -> dict:
+    equity = game_state["hand_strength"]["equity_estimate"]
+    pot = game_state["pot"]
+    street = game_state["street"]
+    
+    # Value bet strong hands
+    if equity > 0.7:
+        return {"type": "raise", "amount": int(pot * 0.75)}
+    
+    # Semi-bluff draws on flop/turn
+    if street in ["flop", "turn"] and 0.3 < equity < 0.5:
+        if random.random() < 0.3:  # Bluff 30% of the time
+            return {"type": "raise", "amount": int(pot * 0.5)}
+    
+    # Call with decent hands
+    if equity > 0.4:
+        return {"type": "call"}
+    
+    return {"type": "check"}</pre>
+      </div>
+    </div>
+
+    <div class="collapsible">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">▶ Debugging Tips</div>
+      <div class="collapsible-content">
+        <ul>
+          <li>Use <code>print()</code> statements to debug - output appears in bot logs</li>
+          <li>Check <code>game_state["legal_actions"]</code> to see what moves are valid</li>
+          <li>If your action is invalid, the engine will auto-fold for you</li>
+          <li>Use the "Validate" button to check for syntax errors</li>
+          <li>Run a demo match to test against a simple opponent</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize CodeMirror
+    var textarea = document.getElementById('code-editor');
+    var editor = CodeMirror.fromTextArea(textarea, {
+      mode: 'python',
+      theme: 'monokai',
+      lineNumbers: true,
+      indentUnit: 4,
+      tabSize: 4,
+      indentWithTabs: false,
+      matchBrackets: true,
+      autoCloseBrackets: true,
+      extraKeys: {
+        "Tab": function(cm) {
+          cm.replaceSelection("    ", "end");
+        }
+      }
+    });
+
+    // Code validation
+    var statusEl = document.getElementById('code-status');
+    var checkTimeout = null;
+
+    function validateCode() {
+      var code = editor.getValue();
+      statusEl.className = 'code-status checking';
+      statusEl.textContent = 'Checking code...';
+
+      var issues = [];
+
+      // Check for decide_action function
+      if (!/def\s+decide_action\s*\(/.test(code)) {
+        issues.push('Missing function: decide_action(game_state)');
+      }
+
+      // Check for return statement
+      if (!/return\s+\{/.test(code) && !/return\s+{"type"/.test(code)) {
+        issues.push('Missing return statement with dict');
+      }
+
+      // Check for basic syntax issues
+      var lines = code.split('\n');
+      var openParens = 0, openBrackets = 0, openBraces = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        // Skip comments
+        var commentIdx = line.indexOf('#');
+        if (commentIdx >= 0) line = line.substring(0, commentIdx);
+        
+        for (var j = 0; j < line.length; j++) {
+          var c = line[j];
+          if (c === '(') openParens++;
+          if (c === ')') openParens--;
+          if (c === '[') openBrackets++;
+          if (c === ']') openBrackets--;
+          if (c === '{') openBraces++;
+          if (c === '}') openBraces--;
+        }
+      }
+      
+      if (openParens !== 0) issues.push('Unbalanced parentheses ()');
+      if (openBrackets !== 0) issues.push('Unbalanced brackets []');
+      if (openBraces !== 0) issues.push('Unbalanced braces {}');
+
+      // Check for common action return values
+      if (!/(fold|check|call|raise)/.test(code)) {
+        issues.push('No action type found (fold/check/call/raise)');
+      }
+
+      // Update status
+      if (issues.length === 0) {
+        statusEl.className = 'code-status valid';
+        statusEl.textContent = '✓ Code looks valid';
+      } else {
+        statusEl.className = 'code-status invalid';
+        statusEl.textContent = '⚠ ' + issues.join(' • ');
+      }
+    }
+
+    editor.on('change', function() {
+      clearTimeout(checkTimeout);
+      checkTimeout = setTimeout(validateCode, 500);
+    });
+
+    // Initial validation
+    validateCode();
+
+    // Collapsible sections
+    function toggleCollapsible(header) {
+      var content = header.nextElementSibling;
+      var isOpen = content.classList.contains('open');
+      content.classList.toggle('open');
+      header.textContent = (isOpen ? '▶ ' : '▼ ') + header.textContent.substring(2);
+    }
+
+    // Show loading overlay for demo matches
+    function showDemoLoading() {
+      var overlay = document.getElementById('demo-loading');
+      if (overlay) {
+        overlay.classList.remove('hidden');
+      }
+    }
+  </script>
+{% endblock %}

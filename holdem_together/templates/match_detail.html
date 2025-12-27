@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}Match {{ match.id }} — Hold ’Em Together{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div><strong>Match {{ match.id }}</strong></div>
+    <div class="muted">Created: {{ match.created_at }}</div>
+    <div class="muted">Seats: {{ match.seats }} · Hands: {{ match.hands }} · Seed: {{ match.seed }}</div>
+    {% if match.error %}
+      <div class="error" style="margin-top: 8px;">{{ match.error }}</div>
+    {% endif %}
+  </div>
+
+  <h3 style="margin-top: 16px;">Results</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Place</th>
+        <th>Bot</th>
+        <th>User</th>
+        <th>Seat</th>
+        <th>Chips won</th>
+        <th>Hands</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><a href="{{ url_for('web.bot_detail', bot_id=r.bot.id) }}">{{ r.bot.name }}</a></td>
+          <td>{{ r.bot.user.name }}</td>
+          <td>{{ r.seat }}</td>
+          <td><strong>{{ r.chips_won }}</strong></td>
+          <td class="muted">{{ r.hands_played }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if logs_by_seat %}
+    <h3 style="margin-top: 16px;">Bot logs</h3>
+    {% for r in results|sort(attribute='seat') %}
+      {% set row = logs_by_seat.get(r.seat) %}
+      {% if row and (row.logs or row.errors) %}
+        <div class="card" style="margin-top: 12px;">
+          <div><strong>Seat {{ r.seat }} — {{ r.bot.name }} ({{ r.bot.user.name }})</strong></div>
+          {% if row.errors %}
+            <div class="muted" style="margin-top: 8px;">Errors:</div>
+            <pre class="error">{{ row.errors }}</pre>
+          {% endif %}
+          {% if row.logs %}
+            <div class="muted" style="margin-top: 8px;">Logs:</div>
+            <pre>{{ row.logs }}</pre>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if hands %}
+    <h3 style="margin-top: 16px;">Hand history</h3>
+    {% for h in hands %}
+      <div class="card" style="margin-top: 12px;">
+        <div><strong>Hand {{ h.hand_index + 1 }}</strong> <span class="muted">(seed {{ h.hand_seed }}, dealer seat {{ h.dealer_seat }})</span></div>
+        <div class="muted" style="margin-top: 8px;">Board:</div>
+        <pre>{{ h.board_json }}</pre>
+        <div class="muted">Actions:</div>
+        <pre>{{ h.actions_json }}</pre>
+        <div class="muted">Winners:</div>
+        <pre>{{ h.winners_json }}</pre>
+        <div class="muted">Side pots:</div>
+        <pre>{{ h.side_pots_json }}</pre>
+        <div class="muted">Stack deltas:</div>
+        <pre>{{ h.delta_stacks_json }}</pre>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endblock %}

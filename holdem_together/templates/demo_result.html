@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+  <h3>Demo table result</h3>
+  <p class="muted">Seed: {{ result.seed }}</p>
+
+  <table>
+    <thead>
+      <tr><th>Seat</th><th>Bot</th><th>Action</th><th>Score (placeholder)</th></tr>
+    </thead>
+    <tbody>
+      {% for i in range(result.seats) %}
+        <tr>
+          <td>{{ i }}</td>
+          <td>{{ bots[i].name }}</td>
+          <td><code>{{ result.actions[i].action | tojson }}</code></td>
+          <td>{{ result.scores[i] }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p><strong>Winner seat:</strong> {{ result.winner_seat }} ({{ bots[result.winner_seat].name }})</p>
+{% endblock %}

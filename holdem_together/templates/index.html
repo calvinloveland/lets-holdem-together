@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Leaderboard — Hold ’Em Together{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="row">
+      <div>
+        <div><strong>Leaderboard</strong> <span class="muted">(MVP: shows bots; ratings come next)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <table style="margin-top: 16px;">
+    <thead>
+      <tr>
+        <th>Bot</th>
+        <th>User</th>
+        <th>Status</th>
+        <th>Elo</th>
+        <th>Chips won</th>
+        <th>Matches</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bot in bots %}
+        <tr>
+          <td><a href="{{ url_for('web.bot_detail', bot_id=bot.id) }}">{{ bot.name }}</a></td>
+          <td>{{ bot.user.name }}</td>
+          <td>{{ bot.status }}</td>
+          <td>{{ (rating_map.get(bot.id, 1500.0)) if rating_map else 1500.0 }}</td>
+          <td>{{ (agg.get(bot.id, {}).get('chips', 0)) if agg else 0 }}</td>
+          <td>{{ (agg.get(bot.id, {}).get('matches', 0)) if agg else 0 }}</td>
+          <td class="muted">{{ bot.updated_at }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

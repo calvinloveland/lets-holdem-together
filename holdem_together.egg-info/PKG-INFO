@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: holdem-together
+Version: 0.1.0
+Requires-Python: >=3.10
+Requires-Dist: Flask==3.0.3
+Requires-Dist: Flask-SQLAlchemy==3.1.1
+Requires-Dist: SQLAlchemy==2.0.36
+Requires-Dist: Werkzeug==3.0.6
+Requires-Dist: pytest==8.3.4
