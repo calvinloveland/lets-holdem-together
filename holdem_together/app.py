@@ -87,13 +87,64 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Hold 'Em Together - Poker Bot Tournament")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Run server (default)
+    run_parser = subparsers.add_parser("run", help="Run the web server (default)")
+    run_parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+    run_parser.add_argument("--port", "-p", type=int, default=5000, help="Port to bind to (default: 5000)")
+    run_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+
+    # Reset database
+    reset_parser = subparsers.add_parser("reset-db", help="Reset the database (drops all data and recreates with seed bots)")
+    reset_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+
+    # Also allow top-level args for backwards compatibility
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
     parser.add_argument("--port", "-p", type=int, default=5000, help="Port to bind to (default: 5000)")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+
     args = parser.parse_args()
 
-    app = create_app()
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    if args.command == "reset-db":
+        reset_database(confirm=not args.yes)
+    else:
+        # Default: run the server
+        app = create_app()
+        app.run(host=args.host, port=args.port, debug=args.debug)
+
+
+def reset_database(confirm: bool = True) -> None:
+    """Drop all tables and recreate with seed data."""
+    if confirm:
+        response = input("This will DELETE ALL DATA. Are you sure? [y/N] ")
+        if response.lower() not in ("y", "yes"):
+            print("Aborted.")
+            return
+
+    # Create app without starting background worker
+    os.environ["HOLD_EM_NO_WORKER"] = "1"
+    app = Flask(__name__)
+    app.config.update(
+        SECRET_KEY="dev",
+        SQLALCHEMY_DATABASE_URI="sqlite:///holdem_together.sqlite3",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+
+    with app.app_context():
+        print("Dropping all tables...")
+        db.drop_all()
+        print("Creating tables...")
+        db.create_all()
+
+        from .services import ensure_ratings_exist, ensure_seed_data
+
+        print("Seeding data...")
+        ensure_seed_data()
+        ensure_ratings_exist()
+
+    print("Database reset complete!")
 
 
 if __name__ == "__main__":

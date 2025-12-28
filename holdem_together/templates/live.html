@@ -1,0 +1,622 @@
+{% extends 'base.html' %}
+
+{% block title %}Live Match — Hold 'Em Together{% endblock %}
+
+{% block content %}
+<div class="live-container">
+  <!-- TV Broadcast Header -->
+  <div class="broadcast-header">
+    <div class="broadcast-logo">
+      <span class="live-indicator">● LIVE</span>
+      <span class="broadcast-title">Hold 'Em Together Championship</span>
+    </div>
+    <div class="broadcast-info">
+      <span id="hand-counter">Waiting to start...</span>
+    </div>
+  </div>
+
+  <!-- Main Poker Table -->
+  <div class="poker-table-container">
+    <div class="poker-table">
+      <!-- Pot Display -->
+      <div class="pot-display">
+        <div class="pot-label">POT</div>
+        <div class="pot-amount" id="pot-amount">0</div>
+      </div>
+
+      <!-- Community Cards -->
+      <div class="community-cards" id="community-cards">
+        <div class="card card-placeholder"></div>
+        <div class="card card-placeholder"></div>
+        <div class="card card-placeholder"></div>
+        <div class="card card-placeholder"></div>
+        <div class="card card-placeholder"></div>
+      </div>
+
+      <!-- Player Seats (positioned around the table) -->
+      <div class="player-seats" id="player-seats">
+        <!-- Players will be injected here by JavaScript -->
+      </div>
+
+      <!-- Dealer Button -->
+      <div class="dealer-button" id="dealer-button" style="display: none;">D</div>
+    </div>
+  </div>
+
+  <!-- Action Log / Commentary -->
+  <div class="commentary-panel">
+    <div class="commentary-header">
+      <span>📺 Live Commentary</span>
+      <span class="auto-play-badge">AUTO-PLAY</span>
+    </div>
+    <div class="commentary-log" id="commentary-log">
+      <div class="commentary-entry welcome">
+        Welcome to Hold 'Em Together Live! 
+        {% if available_bots >= 2 %}
+          Matches run continuously — sit back and enjoy the show!
+        {% else %}
+          <span class="error-text">Need at least 2 valid bots to start a match. Create some bots first!</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Final Standings Panel (hidden initially) -->
+  <div class="standings-panel" id="standings-panel" style="display: none;">
+    <div class="winner-celebration" id="winner-celebration">
+      <div class="winner-trophy">🏆</div>
+      <div class="winner-title">CHAMPION!</div>
+      <div class="winner-name" id="winner-name"></div>
+      <div class="winner-user" id="winner-user"></div>
+      <div class="winner-chips" id="winner-chips"></div>
+    </div>
+    <div class="standings-header">Final Standings</div>
+    <div class="standings-list" id="standings-list"></div>
+    <div class="next-match-notice" id="next-match-notice">
+      Next match starting in <span id="countdown">8</span>s...
+    </div>
+  </div>
+  
+  <!-- Confetti Canvas -->
+  <canvas id="confetti-canvas"></canvas>
+  
+  <!-- Hand Winner Popup -->
+  <div class="hand-winner-popup" id="hand-winner-popup" style="display: none;">
+    <div class="hand-winner-content">
+      <span class="hand-winner-icon">🏆</span>
+      <span class="hand-winner-text" id="hand-winner-text"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+// Card rendering utilities
+const SUIT_SYMBOLS = {'c': '♣', 'd': '♦', 'h': '♥', 's': '♠'};
+const SUIT_COLORS = {'c': '#2d5016', 'd': '#0066cc', 'h': '#cc0000', 's': '#1a1a1a'};
+
+function renderCard(cardStr) {
+  if (!cardStr || cardStr.length < 2) return '<div class="card card-back"></div>';
+  const rank = cardStr[0];
+  const suit = cardStr[1];
+  const symbol = SUIT_SYMBOLS[suit] || suit;
+  const color = SUIT_COLORS[suit] || '#000';
+  const displayRank = rank === 'T' ? '10' : rank;
+  return `<div class="card card-front" style="color: ${color}">
+    <span class="card-rank">${displayRank}</span>
+    <span class="card-suit">${symbol}</span>
+  </div>`;
+}
+
+function renderCardBack() {
+  return '<div class="card card-back"></div>';
+}
+
+// Player seat positions for different player counts
+const SEAT_POSITIONS = {
+  2: [{x: 50, y: 90}, {x: 50, y: 10}],
+  3: [{x: 50, y: 90}, {x: 15, y: 30}, {x: 85, y: 30}],
+  4: [{x: 50, y: 90}, {x: 10, y: 50}, {x: 50, y: 10}, {x: 90, y: 50}],
+  5: [{x: 50, y: 90}, {x: 10, y: 60}, {x: 20, y: 15}, {x: 80, y: 15}, {x: 90, y: 60}],
+  6: [{x: 50, y: 92}, {x: 8, y: 65}, {x: 8, y: 25}, {x: 50, y: 5}, {x: 92, y: 25}, {x: 92, y: 65}]
+};
+
+let players = [];
+let currentPot = 0;
+let eventSource = null;
+
+function createPlayerSeats(playersInfo, startingStack) {
+  players = playersInfo;
+  const container = document.getElementById('player-seats');
+  container.innerHTML = '';
+  
+  const positions = SEAT_POSITIONS[players.length] || SEAT_POSITIONS[6];
+  
+  players.forEach((p, i) => {
+    const pos = positions[i] || {x: 50, y: 50};
+    const seat = document.createElement('div');
+    seat.className = 'player-seat';
+    seat.id = `seat-${i}`;
+    seat.style.left = `${pos.x}%`;
+    seat.style.top = `${pos.y}%`;
+    
+    seat.innerHTML = `
+      <div class="player-cards" id="cards-${i}">
+        ${renderCardBack()}${renderCardBack()}
+      </div>
+      <div class="player-info">
+        <div class="player-name">${p.name}</div>
+        <div class="player-user">by ${p.user}</div>
+        <div class="player-stack" id="stack-${i}">🪙 ${startingStack}</div>
+      </div>
+      <div class="player-action" id="action-${i}"></div>
+      <div class="player-bet" id="bet-${i}"></div>
+    `;
+    
+    container.appendChild(seat);
+  });
+}
+
+function updateStacks(stacks) {
+  stacks.forEach((stack, i) => {
+    const el = document.getElementById(`stack-${i}`);
+    if (el) {
+      el.textContent = `🪙 ${stack}`;
+      el.className = 'player-stack' + (stack === 0 ? ' busted' : '');
+    }
+  });
+}
+
+function setDealer(seat) {
+  const btn = document.getElementById('dealer-button');
+  const positions = SEAT_POSITIONS[players.length] || SEAT_POSITIONS[6];
+  const pos = positions[seat];
+  if (pos && btn) {
+    btn.style.display = 'flex';
+    btn.style.left = `${pos.x + 5}%`;
+    btn.style.top = `${pos.y + 3}%`;
+  }
+}
+
+function showAction(seat, actionType, amount) {
+  const el = document.getElementById(`action-${seat}`);
+  if (!el) return;
+  
+  let text = actionType.toUpperCase();
+  let className = 'player-action';
+  
+  switch(actionType) {
+    case 'fold':
+      className += ' action-fold';
+      break;
+    case 'check':
+      className += ' action-check';
+      break;
+    case 'call':
+      text = `CALL ${amount || ''}`;
+      className += ' action-call';
+      break;
+    case 'raise':
+      text = `RAISE TO ${amount || ''}`;
+      className += ' action-raise';
+      break;
+    case 'post_sb':
+      text = `SB ${amount}`;
+      className += ' action-blind';
+      break;
+    case 'post_bb':
+      text = `BB ${amount}`;
+      className += ' action-blind';
+      break;
+    default:
+      text = `${actionType.toUpperCase()} ${amount || ''}`.trim();
+  }
+  
+  el.className = className + ' show';
+  el.textContent = text;
+  
+  // Clear after delay
+  setTimeout(() => {
+    el.className = 'player-action';
+  }, 2000);
+}
+
+function clearAllActions() {
+  players.forEach((_, i) => {
+    const el = document.getElementById(`action-${i}`);
+    if (el) {
+      el.className = 'player-action';
+      el.textContent = '';
+    }
+  });
+}
+
+function updateCommunityCards(cards) {
+  const container = document.getElementById('community-cards');
+  let html = '';
+  
+  // Show dealt cards
+  cards.forEach(card => {
+    html += renderCard(card);
+  });
+  
+  // Fill remaining with placeholders
+  for (let i = cards.length; i < 5; i++) {
+    html += '<div class="card card-placeholder"></div>';
+  }
+  
+  container.innerHTML = html;
+}
+
+function resetCommunityCards() {
+  const container = document.getElementById('community-cards');
+  container.innerHTML = `
+    <div class="card card-placeholder"></div>
+    <div class="card card-placeholder"></div>
+    <div class="card card-placeholder"></div>
+    <div class="card card-placeholder"></div>
+    <div class="card card-placeholder"></div>
+  `;
+}
+
+function revealHoleCards(holeCards) {
+  holeCards.forEach((cards, seat) => {
+    const el = document.getElementById(`cards-${seat}`);
+    if (el && cards && cards.length === 2) {
+      el.innerHTML = renderCard(cards[0]) + renderCard(cards[1]);
+    }
+  });
+}
+
+function hideAllHoleCards() {
+  players.forEach((_, i) => {
+    const el = document.getElementById(`cards-${i}`);
+    if (el) {
+      el.innerHTML = renderCardBack() + renderCardBack();
+    }
+  });
+}
+
+function markFolded(seat) {
+  const seatEl = document.getElementById(`seat-${seat}`);
+  if (seatEl) {
+    seatEl.classList.add('folded');
+  }
+}
+
+function clearFolded() {
+  players.forEach((_, i) => {
+    const seatEl = document.getElementById(`seat-${i}`);
+    if (seatEl) seatEl.classList.remove('folded');
+  });
+}
+
+function highlightWinners(winners) {
+  winners.forEach(seat => {
+    const seatEl = document.getElementById(`seat-${seat}`);
+    if (seatEl) {
+      seatEl.classList.add('winner');
+    }
+  });
+}
+
+function clearWinnerHighlight() {
+  players.forEach((_, i) => {
+    const seatEl = document.getElementById(`seat-${i}`);
+    if (seatEl) seatEl.classList.remove('winner');
+  });
+}
+
+function updatePot(amount) {
+  currentPot = amount;
+  document.getElementById('pot-amount').textContent = amount;
+}
+
+function addCommentary(message, type = 'normal') {
+  const log = document.getElementById('commentary-log');
+  const entry = document.createElement('div');
+  entry.className = `commentary-entry ${type}`;
+  entry.innerHTML = message;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearCommentary() {
+  const log = document.getElementById('commentary-log');
+  log.innerHTML = '';
+}
+
+function showStandings(standings, winner) {
+  const panel = document.getElementById('standings-panel');
+  const list = document.getElementById('standings-list');
+  
+  // Show winner celebration
+  if (winner) {
+    document.getElementById('winner-name').textContent = winner.name;
+    document.getElementById('winner-user').textContent = `by ${winner.user}`;
+    const sign = winner.chips_won >= 0 ? '+' : '';
+    document.getElementById('winner-chips').textContent = `${sign}${winner.chips_won} chips`;
+  }
+  
+  let html = '';
+  standings.forEach((s, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i+1}`;
+    const chipsClass = s.chips_won >= 0 ? 'chip-positive' : 'chip-negative';
+    const sign = s.chips_won >= 0 ? '+' : '';
+    html += `
+      <div class="standing-row ${i === 0 ? 'first-place' : ''}">
+        <span class="standing-rank">${medal}</span>
+        <span class="standing-name">${s.name}</span>
+        <span class="standing-chips ${chipsClass}">${sign}${s.chips_won}</span>
+      </div>
+    `;
+  });
+  
+  list.innerHTML = html;
+  panel.style.display = 'block';
+}
+
+function showHandWinnerPopup(winnerName, amount) {
+  const popup = document.getElementById('hand-winner-popup');
+  const text = document.getElementById('hand-winner-text');
+  text.textContent = `${winnerName} wins ${amount}!`;
+  popup.style.display = 'flex';
+  
+  // Hide after 2.5 seconds
+  setTimeout(() => {
+    popup.style.display = 'none';
+  }, 2500);
+}
+
+// Confetti animation
+function launchConfetti() {
+  const canvas = document.getElementById('confetti-canvas');
+  const ctx = canvas.getContext('2d');
+  
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  canvas.style.display = 'block';
+  
+  const confettiCount = 150;
+  const confetti = [];
+  const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffd700', '#ff6b35'];
+  
+  for (let i = 0; i < confettiCount; i++) {
+    confetti.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height - canvas.height,
+      w: Math.random() * 10 + 5,
+      h: Math.random() * 6 + 4,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      speed: Math.random() * 3 + 2,
+      angle: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.2,
+      drift: (Math.random() - 0.5) * 2
+    });
+  }
+  
+  let frame = 0;
+  const maxFrames = 300; // ~5 seconds at 60fps
+  
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    confetti.forEach(c => {
+      ctx.save();
+      ctx.translate(c.x + c.w/2, c.y + c.h/2);
+      ctx.rotate(c.angle);
+      ctx.fillStyle = c.color;
+      ctx.fillRect(-c.w/2, -c.h/2, c.w, c.h);
+      ctx.restore();
+      
+      c.y += c.speed;
+      c.x += c.drift;
+      c.angle += c.spin;
+    });
+    
+    frame++;
+    if (frame < maxFrames) {
+      requestAnimationFrame(animate);
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.style.display = 'none';
+    }
+  }
+  
+  animate();
+}
+
+function hideStandings() {
+  document.getElementById('standings-panel').style.display = 'none';
+  // Also hide confetti if it's still showing
+  const canvas = document.getElementById('confetti-canvas');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.style.display = 'none';
+  }
+  // Hide hand winner popup
+  document.getElementById('hand-winner-popup').style.display = 'none';
+}
+
+function startLiveMatch() {
+  // Close existing connection
+  if (eventSource) {
+    eventSource.close();
+  }
+  
+  // Reset UI
+  hideStandings();
+  clearCommentary();
+  resetCommunityCards();
+  updatePot(0);
+  document.getElementById('hand-counter').textContent = 'Starting...';
+  
+  addCommentary('🎬 <strong>Match starting!</strong> Selecting random bots...', 'important');
+  
+  let runningPot = 0;
+  
+  eventSource = new EventSource('/live/stream');
+  
+  eventSource.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    
+    switch(data.type) {
+      case 'init':
+        createPlayerSeats(data.players, data.starting_stack);
+        addCommentary(`🎲 <strong>${data.players.length} players</strong> take their seats at the table!`, 'important');
+        data.players.forEach(p => {
+          addCommentary(`Seat ${p.seat}: <strong>${p.name}</strong> by ${p.user}`);
+        });
+        break;
+      
+      case 'hole_cards':
+        // Reveal hole cards at start of hand (TV poker style)
+        revealHoleCards(data.hole_cards);
+        addCommentary('🂴 Cards dealt! Let\'s see what everyone has...', 'board');
+        break;
+        
+      case 'new_hand':
+        clearFolded();
+        clearWinnerHighlight();
+        hideAllHoleCards();
+        resetCommunityCards();
+        clearAllActions();
+        runningPot = 0;
+        updatePot(0);
+        setDealer(data.dealer_seat);
+        updateStacks(data.stacks);
+        document.getElementById('hand-counter').textContent = `Hand ${data.hand_num} of ${data.total_hands}`;
+        addCommentary(`<hr><strong>🃏 Hand ${data.hand_num}</strong> — Dealer: ${players[data.dealer_seat]?.name || 'Seat ' + data.dealer_seat}`, 'hand-start');
+        break;
+        
+      case 'board':
+        updateCommunityCards(data.cards);
+        const streetName = data.street.charAt(0).toUpperCase() + data.street.slice(1);
+        const cardStrs = data.cards.slice(-3).map(c => {
+          const rank = c[0] === 'T' ? '10' : c[0];
+          const suit = SUIT_SYMBOLS[c[1]] || c[1];
+          return rank + suit;
+        });
+        if (data.street === 'flop') {
+          addCommentary(`🎴 <strong>FLOP:</strong> ${data.cards.map(c => (c[0] === 'T' ? '10' : c[0]) + (SUIT_SYMBOLS[c[1]] || c[1])).join(' ')}`, 'board');
+        } else {
+          const lastCard = data.cards[data.cards.length - 1];
+          addCommentary(`🎴 <strong>${streetName.toUpperCase()}:</strong> ${(lastCard[0] === 'T' ? '10' : lastCard[0])}${SUIT_SYMBOLS[lastCard[1]] || lastCard[1]}`, 'board');
+        }
+        break;
+        
+      case 'action':
+        showAction(data.seat, data.action_type, data.amount);
+        
+        // Update running pot estimate
+        if (data.amount && ['call', 'raise', 'post_sb', 'post_bb'].includes(data.action_type)) {
+          runningPot += data.amount;
+          updatePot(runningPot);
+        }
+        
+        // Commentary
+        let actionText = '';
+        switch(data.action_type) {
+          case 'fold':
+            actionText = `${data.player} <span class="action-text fold">FOLDS</span>`;
+            markFolded(data.seat);
+            break;
+          case 'check':
+            actionText = `${data.player} <span class="action-text check">checks</span>`;
+            break;
+          case 'call':
+            actionText = `${data.player} <span class="action-text call">CALLS ${data.amount}</span>`;
+            break;
+          case 'raise':
+            actionText = `${data.player} <span class="action-text raise">RAISES to ${data.amount}</span> 🔥`;
+            break;
+          case 'post_sb':
+            actionText = `${data.player} posts small blind (${data.amount})`;
+            break;
+          case 'post_bb':
+            actionText = `${data.player} posts big blind (${data.amount})`;
+            break;
+          default:
+            actionText = `${data.player} ${data.action_type} ${data.amount || ''}`;
+        }
+        addCommentary(actionText);
+        break;
+        
+      case 'showdown':
+        revealHoleCards(data.hole_cards);
+        addCommentary('👁️ <strong>SHOWDOWN!</strong> Cards revealed...', 'showdown');
+        break;
+        
+      case 'hand_result':
+        highlightWinners(data.winners);
+        updateStacks(data.final_stacks);
+        
+        // Show winner popup
+        const winnerNames = data.winner_names || data.winners.map(s => players[s]?.name || `Seat ${s}`);
+        const totalPot = data.total_pot || data.delta_stacks.filter(d => d > 0).reduce((a, b) => a + b, 0);
+        showHandWinnerPopup(winnerNames.join(' & '), totalPot);
+        
+        addCommentary(`🏆 <strong>${winnerNames.join(' & ')}</strong> wins ${totalPot} chips!`, 'winner');
+        break;
+        
+      case 'match_complete':
+        addCommentary('<hr>🎊 <strong>MATCH COMPLETE!</strong>', 'important');
+        showStandings(data.standings, data.winner);
+        document.getElementById('hand-counter').textContent = 'Match Complete!';
+        eventSource.close();
+        // Start confetti and then countdown
+        launchConfetti();
+        startCountdown(8);
+        break;
+        
+      case 'error':
+        addCommentary(`❌ Error: ${data.message}`, 'error');
+        eventSource.close();
+        // Retry after a delay on error
+        setTimeout(startLiveMatch, 5000);
+        break;
+    }
+  };
+  
+  eventSource.onerror = function(e) {
+    console.error('EventSource error:', e);
+    addCommentary('❌ Connection lost. Reconnecting...', 'error');
+    eventSource.close();
+    // Auto-retry on connection error
+    setTimeout(startLiveMatch, 3000);
+  };
+}
+
+function startCountdown(seconds) {
+  const countdownEl = document.getElementById('countdown');
+  let remaining = seconds;
+  
+  countdownEl.textContent = remaining;
+  
+  const interval = setInterval(() => {
+    remaining--;
+    countdownEl.textContent = remaining;
+    
+    if (remaining <= 0) {
+      clearInterval(interval);
+      startLiveMatch();
+    }
+  }, 1000);
+}
+
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+  if (eventSource) {
+    eventSource.close();
+  }
+});
+
+// Auto-start on page load
+{% if available_bots >= 2 %}
+window.addEventListener('DOMContentLoaded', function() {
+  // Small delay to let page render
+  setTimeout(startLiveMatch, 500);
+});
+{% endif %}
+</script>
+{% endblock %}

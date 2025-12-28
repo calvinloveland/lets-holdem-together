@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import random
 import json
+import time
 
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, redirect, render_template, request, url_for, Response, stream_with_context
 from sqlalchemy import func
 
 from .bot_sandbox import BotRunResult, run_bot_action, run_bot_action_fast, validate_bot_code
@@ -12,6 +13,7 @@ from .db import Bot, BotVersion, Match, MatchBotLog, MatchHand, MatchResult, Rat
 from .ratings import EloConfig, clamp_rating, update_elo_pairwise
 from .game_state import make_bot_visible_state, normalize_action
 from .tournament import MatchConfig, run_match
+from .engine import TableConfig, simulate_hand
 
 
 bp = Blueprint("web", __name__)
@@ -335,3 +337,231 @@ def bot_detail(bot_id: int):
         db.session.commit()
 
     return render_template("bot_detail.html", bot=bot, msg=msg, demo=demo)
+
+
+@bp.get("/live")
+def live_index():
+    """Live poker broadcast page."""
+    # Get available bots for random selection
+    bots = Bot.query.filter(Bot.status.in_(["valid", "submitted"])).all()
+    return render_template("live.html", available_bots=len(bots))
+
+
+@bp.get("/live/stream")
+def live_stream():
+    """Server-Sent Events stream for live match updates."""
+    
+    def generate():
+        # Select random bots for the match (4-6 players)
+        available_bots = Bot.query.filter(Bot.status.in_(["valid", "submitted"])).all()
+        
+        if len(available_bots) < 2:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Not enough bots available. Need at least 2 valid bots.'})}\n\n"
+            return
+        
+        num_players = min(6, max(2, len(available_bots)))
+        rng = random.Random(int(time.time() * 1000))
+        table_bots = rng.sample(available_bots, num_players)
+        
+        # Send initial setup
+        players_info = [
+            {"seat": i, "name": b.name, "user": b.user.name, "bot_id": b.id}
+            for i, b in enumerate(table_bots)
+        ]
+        
+        seed = int(time.time() * 1000) % 2_147_483_647
+        starting_stack = 1000
+        
+        yield f"data: {json.dumps({'type': 'init', 'players': players_info, 'starting_stack': starting_stack, 'seed': seed})}\n\n"
+        time.sleep(1)
+        
+        # Run multiple hands
+        stacks = [starting_stack] * num_players
+        num_hands = 10  # Play 10 hands for the live show
+        dealer_seat = 0  # Start with seat 0 as dealer
+        
+        def next_dealer(current: int, stack_list: list[int]) -> int:
+            """Find the next dealer seat, skipping busted players."""
+            for i in range(1, num_players + 1):
+                candidate = (current + i) % num_players
+                if stack_list[candidate] > 0:
+                    return candidate
+            return (current + 1) % num_players  # Fallback
+        
+        for hand_num in range(num_hands):
+            # Check if only one player remains with chips
+            players_with_chips = sum(1 for s in stacks if s > 0)
+            if players_with_chips <= 1:
+                break
+            
+            # Make sure dealer has chips (find next valid dealer if not)
+            if stacks[dealer_seat] <= 0:
+                dealer_seat = next_dealer(dealer_seat - 1, stacks)  # Find first valid dealer
+            
+            hand_seed = seed + hand_num * 10_007
+            
+            # Announce new hand
+            yield f"data: {json.dumps({'type': 'new_hand', 'hand_num': hand_num + 1, 'total_hands': num_hands, 'dealer_seat': dealer_seat, 'stacks': stacks})}\n\n"
+            time.sleep(2.0)
+            
+            # Captured state for streaming
+            current_board: list[str] = []
+            current_street = "preflop"
+            hole_cards_revealed: list[list[str] | None] = [None] * num_players
+            actions_this_hand: list[dict] = []
+            pot = 0
+            
+            def stream_decide(code_str: str, gs: dict):
+                nonlocal current_board, current_street, pot
+                
+                seat = int(gs.get("actor_seat", 0))
+                street = gs.get("street", "preflop")
+                board = gs.get("board_cards", [])
+                
+                # Check if we moved to a new street
+                if street != current_street:
+                    current_street = street
+                    current_board = board
+                
+                # Run the bot
+                res: BotRunResult = run_bot_action_fast(code_str, gs)
+                
+                if res.ok and res.action is not None:
+                    return res.action
+                
+                # Fallback
+                legal = {a["type"]: a for a in gs.get("legal_actions", [])}
+                if "check" in legal:
+                    return {"type": "check"}
+                if "call" in legal:
+                    return {"type": "call"}
+                return {"type": "fold"}
+            
+            def stream_make_state(**kwargs):
+                return make_bot_visible_state(**kwargs, equity_samples=20)
+            
+            # Run the hand
+            try:
+                cfg = TableConfig(
+                    seats=num_players,
+                    starting_stack=starting_stack,
+                    small_blind=10,
+                    big_blind=20,
+                )
+                
+                hr = simulate_hand(
+                    bot_codes=[b.code for b in table_bots],
+                    seed=hand_seed,
+                    config=cfg,
+                    dealer_seat=dealer_seat,
+                    initial_stacks=stacks,
+                    bot_decide=stream_decide,
+                    make_state_for_actor=stream_make_state,
+                )
+                
+                # Reveal hole cards at start (TV poker style - viewers see everything)
+                yield f"data: {json.dumps({'type': 'hole_cards', 'hole_cards': hr.hole_cards})}\n\n"
+                time.sleep(1.5)
+                
+                # Stream actions one by one with dramatic timing
+                last_street = None
+                for action in hr.actions:
+                    street = action.get("street", "preflop")
+                    
+                    # When street changes, reveal board cards
+                    if street != last_street:
+                        if street == "flop" and len(hr.board) >= 3:
+                            yield f"data: {json.dumps({'type': 'board', 'street': 'flop', 'cards': hr.board[:3]})}\n\n"
+                            time.sleep(1.8)
+                        elif street == "turn" and len(hr.board) >= 4:
+                            yield f"data: {json.dumps({'type': 'board', 'street': 'turn', 'cards': hr.board[:4]})}\n\n"
+                            time.sleep(1.8)
+                        elif street == "river" and len(hr.board) >= 5:
+                            yield f"data: {json.dumps({'type': 'board', 'street': 'river', 'cards': hr.board[:5]})}\n\n"
+                            time.sleep(1.8)
+                        last_street = street
+                    
+                    # Stream the action
+                    action_data = {
+                        'type': 'action',
+                        'street': street,
+                        'seat': action.get('seat'),
+                        'player': table_bots[action.get('seat', 0)].name,
+                        'action_type': action.get('type'),
+                        'amount': action.get('amount', action.get('to', 0)),
+                    }
+                    yield f"data: {json.dumps(action_data)}\n\n"
+                    
+                    # Dramatic timing based on action type
+                    atype = action.get('type', '')
+                    if atype in ('raise', 'all_in'):
+                        time.sleep(1.5)
+                    elif atype == 'fold':
+                        time.sleep(0.8)
+                    else:
+                        time.sleep(1.0)
+                
+                # When everyone is all-in, there are no actions on later streets
+                # but we still need to reveal the board cards dramatically
+                if len(hr.board) >= 3 and last_street == "preflop":
+                    yield f"data: {json.dumps({'type': 'board', 'street': 'flop', 'cards': hr.board[:3]})}\n\n"
+                    time.sleep(1.8)
+                    last_street = "flop"
+                
+                if len(hr.board) >= 4 and last_street == "flop":
+                    yield f"data: {json.dumps({'type': 'board', 'street': 'turn', 'cards': hr.board[:4]})}\n\n"
+                    time.sleep(1.8)
+                    last_street = "turn"
+                
+                if len(hr.board) >= 5 and last_street in ("flop", "turn"):
+                    yield f"data: {json.dumps({'type': 'board', 'street': 'river', 'cards': hr.board[:5]})}\n\n"
+                    time.sleep(1.8)
+                
+                # Showdown - highlight winning hand
+                yield f"data: {json.dumps({'type': 'showdown', 'hole_cards': hr.hole_cards, 'board': hr.board})}\n\n"
+                time.sleep(2.0)
+                
+                # Winners with names for clearer display
+                winner_names = [table_bots[w].name for w in hr.winners if w < len(table_bots)]
+                total_pot = sum(d for d in hr.delta_stacks if d > 0)
+                yield f"data: {json.dumps({'type': 'hand_result', 'winners': hr.winners, 'winner_names': winner_names, 'total_pot': total_pot, 'delta_stacks': hr.delta_stacks, 'final_stacks': hr.final_stacks, 'side_pots': hr.side_pots})}\n\n"
+                
+                stacks = hr.final_stacks
+                
+                # Rotate dealer to next player with chips
+                dealer_seat = next_dealer(dealer_seat, stacks)
+                
+                time.sleep(3.0)
+                
+                # Check if match is over (only one player has chips)
+                players_with_chips = sum(1 for s in stacks if s > 0)
+                if players_with_chips <= 1:
+                    break
+                
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                break
+        
+        # Final results
+        chips_won = [stacks[i] - starting_stack for i in range(num_players)]
+        final_standings = sorted(enumerate(chips_won), key=lambda x: x[1], reverse=True)
+        
+        # Get the winner info for celebration
+        winner_seat, winner_chips = final_standings[0]
+        winner_info = {
+            'name': table_bots[winner_seat].name,
+            'user': table_bots[winner_seat].user.name,
+            'bot_id': table_bots[winner_seat].id,
+            'chips_won': winner_chips,
+        }
+        
+        yield f"data: {json.dumps({'type': 'match_complete', 'final_stacks': stacks, 'chips_won': chips_won, 'winner': winner_info, 'standings': [{'seat': s, 'name': table_bots[s].name, 'chips_won': c} for s, c in final_standings]})}\n\n"
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        }
+    )

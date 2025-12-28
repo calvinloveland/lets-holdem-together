@@ -116,9 +116,11 @@ def simulate_hand(
 
     players = [PlayerState(stack=int(initial_stacks[i])) for i in range(config.seats)]
 
-    # Deal hole cards.
+    # Deal hole cards only to players with chips (skip busted players).
     for seat in range(config.seats):
-        players[seat].hole_cards = [deck.pop(), deck.pop()]
+        if players[seat].stack > 0:
+            players[seat].hole_cards = [deck.pop(), deck.pop()]
+        # else: busted player has no hole_cards (None)
 
     actions: list[dict[str, Any]] = []
     contrib_total = [0 for _ in range(config.seats)]
@@ -132,11 +134,40 @@ def simulate_hand(
         actions.append({"street": "preflop", "seat": seat, "type": kind, "amount": pay})
 
     # Blinds
-    sb_seat = _next_active_seat(config.seats, dealer_seat, lambda s: players[s].stack > 0)
-    bb_seat = None if sb_seat is None else _next_active_seat(config.seats, sb_seat, lambda s: players[s].stack > 0)
+    # Count how many players have chips (are actually playing)
+    active_players = [i for i in range(config.seats) if players[i].stack > 0]
+    num_active = len(active_players)
+    
+    if num_active < 2:
+        # Everyone busted except one (or zero)
+        final_stacks = [p.stack for p in players]
+        return HandResult(
+            seed=seed,
+            dealer_seat=dealer_seat,
+            board=[],
+            hole_cards=[p.hole_cards for p in players],
+            actions=actions,
+            delta_stacks=[0 for _ in players],
+            final_stacks=final_stacks,
+            winners=[i for i, p in enumerate(players) if p.stack > 0],
+            side_pots=[],
+        )
+    
+    # Heads-up special case: dealer posts SB, other player posts BB
+    if num_active == 2:
+        # Find the dealer among active players (or use first active if dealer is busted)
+        if players[dealer_seat].stack > 0:
+            sb_seat = dealer_seat
+        else:
+            sb_seat = active_players[0]
+        bb_seat = _next_active_seat(config.seats, sb_seat, lambda s: players[s].stack > 0)
+    else:
+        # Normal case: SB is left of dealer, BB is left of SB
+        sb_seat = _next_active_seat(config.seats, dealer_seat, lambda s: players[s].stack > 0)
+        bb_seat = None if sb_seat is None else _next_active_seat(config.seats, sb_seat, lambda s: players[s].stack > 0)
 
     if sb_seat is None or bb_seat is None:
-        # everyone busted except one
+        # Shouldn't happen if we have 2+ active players, but safety check
         final_stacks = [p.stack for p in players]
         return HandResult(
             seed=seed,
@@ -161,8 +192,8 @@ def simulate_hand(
         contributed_street = [0 for _ in range(config.seats)]
         # initialize with blinds already in contrib_total during preflop
         if street == "preflop":
-            contributed_street[sb_seat] = min(config.small_blind, config.starting_stack)
-            contributed_street[bb_seat] = min(config.big_blind, config.starting_stack)
+            contributed_street[sb_seat] = min(config.small_blind, initial_stacks[sb_seat])
+            contributed_street[bb_seat] = min(config.big_blind, initial_stacks[bb_seat])
 
         current_bet = initial_bet
         last_raise = initial_last_raise
@@ -264,7 +295,9 @@ def simulate_hand(
                 actions.append({"street": street, "seat": seat, "type": "fold"})
             elif atype == "check":
                 if to_call != 0:
+                    # Bot tried to check but there's a bet to call - force call instead
                     apply_call()
+                    acted_since_raise[seat] = True
                 else:
                     acted_since_raise[seat] = True
                     actions.append({"street": street, "seat": seat, "type": "check"})
@@ -315,11 +348,12 @@ def simulate_hand(
 
             idx = (seat + 1) % config.seats
 
-    # Determine first to act preflop: left of big blind.
-    first_preflop = _next_active_seat(config.seats, bb_seat, lambda s: not players[s].folded)
-    assert first_preflop is not None
-
-    betting_round("preflop", first_preflop, initial_bet=config.big_blind, initial_last_raise=config.big_blind)
+    # Determine first to act preflop: left of big blind (must be able to act - not folded and not all-in).
+    first_preflop = _next_active_seat(config.seats, bb_seat, lambda s: not players[s].folded and not players[s].all_in and players[s].hole_cards is not None)
+    
+    # If someone can act preflop, run the betting round
+    if first_preflop is not None:
+        betting_round("preflop", first_preflop, initial_bet=config.big_blind, initial_last_raise=config.big_blind)
 
     def deal_board(n: int) -> None:
         # burn 1
@@ -389,8 +423,12 @@ def simulate_hand(
                 players[s].stack += share + (1 if i < rem else 0)
             pot["winner_seats"] = tied
 
-        # winners = those with most chips gained this hand among eligible
-        winners = [i for i, ok in enumerate(eligible) if ok]
+        # winners = those who actually won chips from pots (collect unique winners)
+        all_winners: set[int] = set()
+        for pot in side_pots:
+            if "winner_seats" in pot:
+                all_winners.update(pot["winner_seats"])
+        winners = sorted(all_winners) if all_winners else remaining
 
     final_stacks = [p.stack for p in players]
     delta = [final_stacks[i] - int(initial_stacks[i]) for i in range(config.seats)]

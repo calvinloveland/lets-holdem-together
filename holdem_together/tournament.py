@@ -46,7 +46,21 @@ def run_match(
     dealer = 0
     hands: list[HandResult] = []
 
+    def next_dealer(current: int, stack_list: list[int]) -> int:
+        """Find the next dealer seat, skipping busted players."""
+        for i in range(1, cfg.seats + 1):
+            candidate = (current + i) % cfg.seats
+            if stack_list[candidate] > 0:
+                return candidate
+        # Fallback (shouldn't happen if game isn't over)
+        return (current + 1) % cfg.seats
+
     for h in range(match_config.hands):
+        # Check if only one player remains
+        players_with_chips = sum(1 for s in stacks if s > 0)
+        if players_with_chips <= 1:
+            break
+            
         hand_seed = seed + h * 10_007
         hr = simulate_hand(
             bot_codes,
@@ -59,12 +73,12 @@ def run_match(
         )
         hands.append(hr)
         stacks = hr.final_stacks
-        dealer = (dealer + 1) % cfg.seats
+        dealer = next_dealer(dealer, stacks)
 
     chips_won = [stacks[i] - cfg.starting_stack for i in range(cfg.seats)]
     return MatchResult(
         seed=seed,
-        hands=match_config.hands,
+        hands=len(hands),  # Actual number of hands played (may end early if one player left)
         seats=match_config.seats,
         final_stacks=stacks,
         chips_won=chips_won,

@@ -23,9 +23,17 @@ holdem_together.egg-info/top_level.txt
 tests/test_app_smoke.py
 tests/test_background_runner_smoke.py
 tests/test_bot_sandbox.py
+tests/test_bot_sandbox_comprehensive.py
 tests/test_bot_sandbox_imports.py
 tests/test_bot_sandbox_logs.py
+tests/test_engine_comprehensive.py
 tests/test_engine_smoke.py
+tests/test_game_state.py
 tests/test_match_routes_smoke.py
 tests/test_poker_eval.py
+tests/test_poker_eval_comprehensive.py
+tests/test_ratings_comprehensive.py
 tests/test_ratings_smoke.py
+tests/test_routes_comprehensive.py
+tests/test_services_comprehensive.py
+tests/test_tournament_comprehensive.py
