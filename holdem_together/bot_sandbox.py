@@ -107,6 +107,32 @@ def _worker(code: str, game_state_json: str, q: mp.Queue) -> None:
         q.put({"ok": False, "error": traceback.format_exc()})
 
 
+def run_bot_action_fast(code: str, game_state: dict[str, Any]) -> BotRunResult:
+    """Run bot code in-process for maximum speed.
+
+    This is used for demo matches where we trust the code (already validated)
+    and want to avoid subprocess overhead. Not suitable for untrusted code
+    in production since there's no timeout enforcement or isolation.
+    """
+    try:
+        compiled = compile(textwrap.dedent(code), "<bot>", "exec")
+        stdout_capture = io.StringIO()
+        g = _sandbox_globals(stdout_capture)
+        exec(compiled, g, g)
+
+        fn = g.get(_REQUIRED_FN)
+        if fn is None or not callable(fn):
+            raise ValueError(f"Missing required function `{_REQUIRED_FN}`")
+
+        action = fn(game_state)
+        if not isinstance(action, dict):
+            raise TypeError("Bot must return a dict action")
+
+        return BotRunResult(ok=True, action=action, error=None, logs=stdout_capture.getvalue())
+    except Exception:
+        return BotRunResult(ok=False, action=None, error=traceback.format_exc(), logs=None)
+
+
 def run_bot_action(code: str, game_state: dict[str, Any], timeout_s: float = 1.0) -> BotRunResult:
     """Run bot in a subprocess with a timeout.
 

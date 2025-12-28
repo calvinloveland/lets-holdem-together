@@ -4,7 +4,7 @@ import functools
 import random
 from typing import Any
 
-from .poker_eval import HandStrength, best_of_7, rank_5
+from .poker_eval import HandStrength, best_of_7, rank_5, _compare_hand_strength
 
 
 def _current_made_hand(hole_cards: list[str], board_cards: list[str]) -> HandStrength:
@@ -70,30 +70,28 @@ def _equity_cached(
     rng = random.Random(seed)
 
     wins = 0.0
+    need_board = 5 - len(board)
+    # Pre-compute how many cards we need per sample
+    cards_per_sample = need_board + opponents * 2
+    
     for _ in range(samples):
-        rng.shuffle(deck)
-        need_board = 5 - len(board)
-        runout = list(board) + deck[:need_board]
-        idx = need_board
-
-        hero7 = list(hole) + runout
-
-        opp_holes: list[list[str]] = []
-        for _j in range(opponents):
-            opp_holes.append([deck[idx], deck[idx + 1]])
-            idx += 2
-
+        # Use sample() instead of shuffle() - only pick what we need
+        drawn = rng.sample(deck, cards_per_sample)
+        
+        runout = list(board) + drawn[:need_board]
+        hero7 = tuple(hole) + tuple(runout)
         hero_best = best_of_7(hero7)
 
         hero_beats_all = True
         hero_ties = True
-        for oh in opp_holes:
-            opp_best = best_of_7(oh + runout)
-            # compare category by ordering in poker_eval (implicit): use string compare isn't valid.
-            # We'll compare by reconstructing via best_of_7 on full lists using existing compare_best_of_7.
-            from .poker_eval import compare_best_of_7
-
-            cmp = compare_best_of_7(hero7, oh + runout)
+        idx = need_board
+        for _ in range(opponents):
+            opp_hole = (drawn[idx], drawn[idx + 1])
+            idx += 2
+            opp7 = opp_hole + tuple(runout)
+            opp_best = best_of_7(opp7)
+            
+            cmp = _compare_hand_strength(hero_best, opp_best)
             if cmp < 0:
                 hero_beats_all = False
                 hero_ties = False
@@ -115,8 +113,13 @@ def estimate_equity(
     opponents: int,
     *,
     seed: int,
-    samples: int = 250,
+    samples: int = 100,
 ) -> float:
+    """Estimate win equity via Monte Carlo simulation.
+    
+    100 samples provides a reasonable estimate with ~3-5% standard error,
+    sufficient for bot decision-making while keeping computation fast.
+    """
     if len(hole_cards) != 2:
         return 0.0
     return _equity_cached(tuple(hole_cards), tuple(board_cards), opponents, samples, seed)
@@ -136,12 +139,13 @@ def make_bot_visible_state(
     action_history: list[dict[str, Any]],
     legal_actions: list[dict[str, Any]],
     active_seats: list[int],
+    equity_samples: int = 100,
 ) -> dict[str, Any]:
     pot = int(sum(contributed_total))
     made = _current_made_hand(hole_cards, board_cards)
 
-    opp = max(0, len([s for s in active_seats if s != actor_seat]) )
-    equity = estimate_equity(hole_cards, board_cards, opp, seed=seed + actor_seat * 101)
+    opp = max(0, len([s for s in active_seats if s != actor_seat]))
+    equity = estimate_equity(hole_cards, board_cards, opp, seed=seed + actor_seat * 101, samples=equity_samples)
 
     return {
         "hand_id": f"hand-{seed}",
