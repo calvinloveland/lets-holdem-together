@@ -26,11 +26,11 @@
 
       <!-- Community Cards -->
       <div class="community-cards" id="community-cards">
-        <div class="card card-placeholder"></div>
-        <div class="card card-placeholder"></div>
-        <div class="card card-placeholder"></div>
-        <div class="card card-placeholder"></div>
-        <div class="card card-placeholder"></div>
+        <div class="playing-card card-placeholder"></div>
+        <div class="playing-card card-placeholder"></div>
+        <div class="playing-card card-placeholder"></div>
+        <div class="playing-card card-placeholder"></div>
+        <div class="playing-card card-placeholder"></div>
       </div>
 
       <!-- Player Seats (positioned around the table) -->
@@ -95,20 +95,20 @@ const SUIT_SYMBOLS = {'c': '♣', 'd': '♦', 'h': '♥', 's': '♠'};
 const SUIT_COLORS = {'c': '#2d5016', 'd': '#0066cc', 'h': '#cc0000', 's': '#1a1a1a'};
 
 function renderCard(cardStr) {
-  if (!cardStr || cardStr.length < 2) return '<div class="card card-back"></div>';
+  if (!cardStr || cardStr.length < 2) return '<div class="playing-card card-back"></div>';
   const rank = cardStr[0];
   const suit = cardStr[1];
   const symbol = SUIT_SYMBOLS[suit] || suit;
   const color = SUIT_COLORS[suit] || '#000';
   const displayRank = rank === 'T' ? '10' : rank;
-  return `<div class="card card-front" style="color: ${color}">
+  return `<div class="playing-card card-front" style="color: ${color}">
     <span class="card-rank">${displayRank}</span>
     <span class="card-suit">${symbol}</span>
   </div>`;
 }
 
 function renderCardBack() {
-  return '<div class="card card-back"></div>';
+  return '<div class="playing-card card-back"></div>';
 }
 
 // Player seat positions for different player counts
@@ -241,7 +241,7 @@ function updateCommunityCards(cards) {
   
   // Fill remaining with placeholders
   for (let i = cards.length; i < 5; i++) {
-    html += '<div class="card card-placeholder"></div>';
+    html += '<div class="playing-card card-placeholder"></div>';
   }
   
   container.innerHTML = html;
@@ -250,11 +250,11 @@ function updateCommunityCards(cards) {
 function resetCommunityCards() {
   const container = document.getElementById('community-cards');
   container.innerHTML = `
-    <div class="card card-placeholder"></div>
-    <div class="card card-placeholder"></div>
-    <div class="card card-placeholder"></div>
-    <div class="card card-placeholder"></div>
-    <div class="card card-placeholder"></div>
+    <div class="playing-card card-placeholder"></div>
+    <div class="playing-card card-placeholder"></div>
+    <div class="playing-card card-placeholder"></div>
+    <div class="playing-card card-placeholder"></div>
+    <div class="playing-card card-placeholder"></div>
   `;
 }
 

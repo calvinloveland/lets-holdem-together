@@ -4,8 +4,11 @@ import hashlib
 import random
 import json
 import time
+import os
+from datetime import datetime
+from pathlib import Path
 
-from flask import Blueprint, redirect, render_template, request, url_for, Response, stream_with_context
+from flask import Blueprint, redirect, render_template, request, url_for, Response, stream_with_context, make_response
 from sqlalchemy import func
 
 from .bot_sandbox import BotRunResult, run_bot_action, run_bot_action_fast, validate_bot_code
@@ -112,9 +115,14 @@ def bots_new():
         bot = Bot(user_id=user.id, name=bot_name, code=code, status="draft")
         db.session.add(bot)
         db.session.commit()
-        return redirect(url_for("web.bot_detail", bot_id=bot.id))
+        
+        # Save username to cookie for convenience
+        response = make_response(redirect(url_for("web.bot_detail", bot_id=bot.id)))
+        response.set_cookie('holdem_username', user_name, max_age=60*60*24*365)  # 1 year
+        return response
 
-    return render_template("bot_new.html")
+    saved_username = request.cookies.get('holdem_username', '')
+    return render_template("bot_new.html", saved_username=saved_username)
 
 
 @bp.route("/bots/<int:bot_id>", methods=["GET", "POST"])
@@ -565,3 +573,45 @@ def live_stream():
             'X-Accel-Buffering': 'no',
         }
     )
+
+
+@bp.route("/feedback", methods=["GET", "POST"])
+def feedback():
+    saved_username = request.cookies.get('holdem_username', '')
+    success = False
+    
+    if request.method == "POST":
+        user_name = (request.form.get("user_name") or "").strip() or "anonymous"
+        category = (request.form.get("category") or "").strip() or "other"
+        subject = (request.form.get("subject") or "").strip() or "No subject"
+        message = (request.form.get("message") or "").strip() or "No message"
+        
+        # Create feedback directory if it doesn't exist
+        feedback_dir = Path(__file__).parent.parent / "feedback"
+        feedback_dir.mkdir(exist_ok=True)
+        
+        # Generate unique filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = "".join(c if c.isalnum() else "_" for c in user_name)[:20]
+        filename = f"{timestamp}_{safe_name}_{category}.md"
+        filepath = feedback_dir / filename
+        
+        # Write feedback to file
+        content = f"""# Feedback: {subject}
+
+**From:** {user_name}  
+**Category:** {category}  
+**Date:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+---
+
+{message}
+"""
+        filepath.write_text(content, encoding="utf-8")
+        
+        # Save username to cookie
+        response = make_response(render_template("feedback.html", saved_username=user_name, success=True))
+        response.set_cookie('holdem_username', user_name, max_age=60*60*24*365)
+        return response
+    
+    return render_template("feedback.html", saved_username=saved_username, success=success)

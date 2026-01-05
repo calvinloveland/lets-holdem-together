@@ -305,10 +305,25 @@ label {
   box-shadow: var(--shadow);
 }
 
+#code-editor {
+  display: none; /* Hide textarea, CodeMirror replaces it */
+}
+
 .CodeMirror {
   height: 450px;
   font-size: 14px;
   border-radius: var(--radius);
+  position: relative !important; /* Prevent overlap issues */
+}
+
+/* Bot creation form layout */
+.bot-create-form {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.bot-create-form .card {
+  overflow: visible;
 }
 
 .code-status {
@@ -380,8 +395,13 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px;
-  margin-top: 20px;
+  margin-top: 24px;
   box-shadow: var(--shadow-sm);
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+  position: relative;
+  clear: both;
 }
 
 .help-panel h4 {
@@ -817,7 +837,7 @@ code {
 }
 
 /* Playing Cards */
-.card {
+.playing-card {
   width: 50px;
   height: 72px;
   border-radius: 6px;
@@ -887,7 +907,7 @@ code {
   opacity: 0.4;
 }
 
-.player-seat.folded .player-cards .card {
+.player-seat.folded .player-cards .playing-card {
   filter: grayscale(100%);
 }
 
@@ -907,7 +927,7 @@ code {
   margin-bottom: 8px;
 }
 
-.player-cards .card {
+.player-cards .playing-card {
   width: 40px;
   height: 58px;
 }
@@ -1357,7 +1377,7 @@ code {
     height: 350px;
   }
   
-  .card {
+  .playing-card {
     width: 40px;
     height: 58px;
   }
@@ -1370,7 +1390,7 @@ code {
     font-size: 18px;
   }
   
-  .player-cards .card {
+  .player-cards .playing-card {
     width: 32px;
     height: 46px;
   }
@@ -1405,7 +1425,7 @@ code {
     gap: 4px;
   }
   
-  .card {
+  .playing-card {
     width: 32px;
     height: 46px;
   }

@@ -26,6 +26,8 @@ ALL_IN_MANIAC_CODE = """def decide_action(game_state: dict) -> dict:
         return {"type": "raise", "amount": my_stack}
     if "call" in legal:
         return {"type": "call"}
+    if "check" in legal:
+        return {"type": "check"}
     return {"type": "fold"}
 """
 

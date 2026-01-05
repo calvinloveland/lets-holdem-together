@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Feedback — Hold 'Em Together{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h3>📝 Send Feedback</h3>
+    <p class="muted">Help us improve Hold 'Em Together! Share your thoughts, bug reports, or feature requests.</p>
+    
+    {% if success %}
+      <div class="feedback-success" style="background: #d4edda; color: #155724; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+        ✅ Thank you for your feedback! We appreciate your input.
+      </div>
+    {% endif %}
+    
+    <form method="post">
+      <div class="row">
+        <label style="flex: 1;">Your name<br />
+          <input name="user_name" placeholder="your_name" value="{{ saved_username or '' }}" />
+        </label>
+        <label style="flex: 1;">Category<br />
+          <select name="category">
+            <option value="bug">🐛 Bug Report</option>
+            <option value="feature">✨ Feature Request</option>
+            <option value="improvement">💡 Improvement</option>
+            <option value="question">❓ Question</option>
+            <option value="other">📌 Other</option>
+          </select>
+        </label>
+      </div>
+      
+      <div style="margin-top: 12px;">
+        <label>Subject<br />
+          <input name="subject" placeholder="Brief summary of your feedback" style="width: 100%;" required />
+        </label>
+      </div>
+      
+      <div style="margin-top: 12px;">
+        <label>Details<br />
+          <textarea name="message" rows="8" placeholder="Describe your feedback in detail..." style="width: 100%; font-family: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-color);" required></textarea>
+        </label>
+      </div>
+      
+      <div class="row" style="margin-top: 16px;">
+        <button class="btn" type="submit">Submit Feedback</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

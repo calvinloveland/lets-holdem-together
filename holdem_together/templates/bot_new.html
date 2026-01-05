@@ -3,20 +3,21 @@
 {% block title %}New bot — Hold 'Em Together{% endblock %}
 
 {% block content %}
-  <h3>Create a bot</h3>
-  <form method="post" class="card">
-    <div class="row">
-      <label>User name<br />
-        <input name="user_name" placeholder="your_name" />
-      </label>
-      <label>Bot name<br />
-        <input name="bot_name" placeholder="my_bot" />
-      </label>
-    </div>
-    <div style="margin-top: 12px;">
-      <label>Code</label>
-      <div id="code-status" class="code-status checking">Checking code...</div>
-      <textarea id="code-editor" name="code">def decide_action(game_state: dict) -> dict:
+  <div class="bot-create-form">
+    <h3 style="text-align: center;">Create a bot</h3>
+    <form method="post" class="card">
+      <div class="row">
+        <label>User name<br />
+          <input name="user_name" placeholder="your_name" value="{{ saved_username or '' }}" />
+        </label>
+        <label>Bot name<br />
+          <input name="bot_name" placeholder="my_bot" />
+        </label>
+      </div>
+      <div style="margin-top: 12px;">
+        <label>Code</label>
+        <div id="code-status" class="code-status checking">Checking code...</div>
+        <textarea id="code-editor" name="code">def decide_action(game_state: dict) -> dict:
     """
     Decide what action to take based on the current game state.
     
@@ -165,6 +166,7 @@ def decide_action(game_state: dict) -> dict:
     return {"type": "check"}</pre>
       </div>
     </div>
+  </div>
   </div>
 
   <script>
