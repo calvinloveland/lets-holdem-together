@@ -7,7 +7,6 @@ import multiprocessing as mp
 import textwrap
 import traceback
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any
 
 
@@ -62,7 +61,7 @@ def _sandbox_globals(stdout_capture: io.StringIO):
         "__import__": _limited_import,
     }
 
-    return {"__builtins__": MappingProxyType(safe_builtins)}
+    return {"__builtins__": safe_builtins}
 
 
 def validate_bot_code(code: str) -> tuple[bool, str | None]:
