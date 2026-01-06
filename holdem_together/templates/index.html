@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 
-{% block title %}Leaderboard — Hold ’Em Together{% endblock %}
+{% block title %}Leaderboard — Hold 'Em Together{% endblock %}
 
 {% block content %}
   <div class="card">
     <div class="row">
       <div>
-        <div><strong>Leaderboard</strong> <span class="muted">(MVP: shows bots; ratings come next)</span></div>
+        <div><strong>Leaderboard</strong> <span class="muted">(ranked by chips/hand — the best measure of poker skill)</span></div>
       </div>
     </div>
   </div>
@@ -14,27 +14,71 @@
   <table style="margin-top: 16px;">
     <thead>
       <tr>
+        <th>#</th>
         <th>Bot</th>
         <th>User</th>
         <th>Status</th>
-        <th>Elo</th>
-        <th>Chips won</th>
+        <th>Chips/Hand</th>
+        <th>Total Chips</th>
+        <th>Hands</th>
         <th>Matches</th>
-        <th>Updated</th>
       </tr>
     </thead>
     <tbody>
       {% for bot in bots %}
+        {% set stats = agg.get(bot.id, {}) %}
+        {% set chips_per_hand = stats.get('chips_per_hand', 0) %}
+        {% set total_chips = stats.get('chips', 0) %}
+        {% set total_hands = stats.get('hands', 0) %}
+        {% set matches = stats.get('matches', 0) %}
         <tr>
+          <td>
+            {% if loop.index == 1 and matches > 0 %}🥇
+            {% elif loop.index == 2 and matches > 0 %}🥈
+            {% elif loop.index == 3 and matches > 0 %}🥉
+            {% else %}{{ loop.index }}
+            {% endif %}
+          </td>
           <td><a href="{{ url_for('web.bot_detail', bot_id=bot.id) }}">{{ bot.name }}</a></td>
           <td>{{ bot.user.name }}</td>
-          <td>{{ bot.status }}</td>
-          <td>{{ (rating_map.get(bot.id, 1500.0)) if rating_map else 1500.0 }}</td>
-          <td>{{ (agg.get(bot.id, {}).get('chips', 0)) if agg else 0 }}</td>
-          <td>{{ (agg.get(bot.id, {}).get('matches', 0)) if agg else 0 }}</td>
-          <td class="muted">{{ bot.updated_at }}</td>
+          <td>
+            {% if bot.status == 'valid' %}
+              <span class="status-valid">✓ Valid</span>
+            {% elif bot.status == 'submitted' %}
+              <span class="status-submitted">★ Submitted</span>
+            {% elif bot.status == 'invalid' %}
+              <span class="status-invalid">✗ Invalid</span>
+            {% else %}
+              <span class="status-draft">Draft</span>
+            {% endif %}
+          </td>
+          <td class="{% if chips_per_hand > 0 %}chip-positive{% elif chips_per_hand < 0 %}chip-negative{% endif %}">
+            {% if matches > 0 %}
+              {{ "%.2f"|format(chips_per_hand) }}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td class="{% if total_chips > 0 %}chip-positive{% elif total_chips < 0 %}chip-negative{% endif %}">
+            {% if total_chips >= 0 %}+{% endif %}{{ total_chips }}
+          </td>
+          <td>{{ total_hands }}</td>
+          <td>{{ matches }}</td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
+  
+  <div class="card" style="margin-top: 20px;">
+    <div class="row">
+      <div>
+        <div><strong>📊 Ranking Explained</strong></div>
+        <p class="muted" style="margin-top: 8px; font-size: 0.9rem;">
+          Bots are ranked by <strong>Chips per Hand</strong> — the average chips won or lost per hand played.
+          This metric best reflects poker skill by normalizing for the number of hands played.
+          A positive value means the bot wins chips on average; negative means it loses.
+        </p>
+      </div>
+    </div>
+  </div>
 {% endblock %}

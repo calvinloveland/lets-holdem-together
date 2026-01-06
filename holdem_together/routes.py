@@ -34,23 +34,32 @@ def index():
             db.session.add(Rating(bot_id=b.id, rating=1500.0, matches_played=0))
     db.session.commit()
 
-    bots = (
-        db.session.query(Bot)
-        .outerjoin(Rating, Rating.bot_id == Bot.id)
-        .order_by(Rating.rating.desc().nullslast(), Bot.updated_at.desc())
-        .all()
-    )
-
+    # Calculate aggregate stats including total hands played
     rows = (
         db.session.query(
             MatchResult.bot_id,
             func.sum(MatchResult.chips_won).label("chips"),
+            func.sum(MatchResult.hands_played).label("hands"),
             func.count(MatchResult.id).label("matches"),
         )
         .group_by(MatchResult.bot_id)
         .all()
     )
-    agg = {int(r.bot_id): {"chips": int(r.chips or 0), "matches": int(r.matches or 0)} for r in rows}
+    agg = {}
+    for r in rows:
+        total_chips = int(r.chips or 0)
+        total_hands = int(r.hands or 0)
+        chips_per_hand = round(total_chips / total_hands, 2) if total_hands > 0 else 0.0
+        agg[int(r.bot_id)] = {
+            "chips": total_chips,
+            "hands": total_hands,
+            "matches": int(r.matches or 0),
+            "chips_per_hand": chips_per_hand,
+        }
+
+    # Sort bots by chips_per_hand (best metric for poker skill)
+    bots = Bot.query.all()
+    bots.sort(key=lambda b: (agg.get(b.id, {}).get("chips_per_hand", 0), agg.get(b.id, {}).get("chips", 0)), reverse=True)
 
     rating_map = {int(r.bot_id): float(r.rating) for r in Rating.query.all()}
     return render_template("index.html", bots=bots, agg=agg, rating_map=rating_map)
@@ -349,14 +358,32 @@ def bot_detail(bot_id: int):
 
 @bp.get("/live")
 def live_index():
-    """Live poker broadcast page."""
+    """Live poker broadcast page with multiple tables."""
     # Get available bots for random selection
     bots = Bot.query.filter(Bot.status.in_(["valid", "submitted"])).all()
-    return render_template("live.html", available_bots=len(bots))
+    
+    # Calculate number of tables needed (6 players per table)
+    num_bots = len(bots)
+    num_tables = max(1, (num_bots + 5) // 6)  # Round up to ensure every bot can have a seat
+    
+    # Get current user's bots for "find my bot" feature
+    saved_username = request.cookies.get('holdem_username', '')
+    user_bots = []
+    if saved_username:
+        user = User.query.filter_by(name=saved_username).first()
+        if user:
+            user_bots = [b.id for b in user.bots if b.status in ("valid", "submitted")]
+    
+    return render_template("live.html", 
+                           available_bots=num_bots, 
+                           num_tables=num_tables,
+                           user_bots=user_bots,
+                           saved_username=saved_username)
 
 
 @bp.get("/live/stream")
-def live_stream():
+@bp.get("/live/stream/<int:table_id>")
+def live_stream(table_id: int = 0):
     """Server-Sent Events stream for live match updates."""
     
     def generate():
@@ -367,9 +394,39 @@ def live_stream():
             yield f"data: {json.dumps({'type': 'error', 'message': 'Not enough bots available. Need at least 2 valid bots.'})}\n\n"
             return
         
+        # Use table_id as part of the seed for deterministic but different shuffles per table
+        base_seed = int(time.time() * 1000) % 2_147_483_647
+        table_seed = base_seed + table_id * 12345
+        
         num_players = min(6, max(2, len(available_bots)))
-        rng = random.Random(int(time.time() * 1000))
-        table_bots = rng.sample(available_bots, num_players)
+        rng = random.Random(table_seed)
+        
+        # If we have more bots than one table can hold, distribute them across tables
+        num_tables = max(1, (len(available_bots) + 5) // 6)
+        
+        if num_tables > 1 and table_id < num_tables:
+            # Shuffle all bots and pick a slice for this table
+            shuffled_bots = available_bots.copy()
+            # Use a consistent shuffle for the current match round
+            round_rng = random.Random(base_seed)
+            round_rng.shuffle(shuffled_bots)
+            
+            # Calculate which bots go to this table
+            bots_per_table = len(shuffled_bots) // num_tables
+            extra = len(shuffled_bots) % num_tables
+            
+            start_idx = table_id * bots_per_table + min(table_id, extra)
+            end_idx = start_idx + bots_per_table + (1 if table_id < extra else 0)
+            
+            table_bots = shuffled_bots[start_idx:end_idx]
+            
+            # Ensure at least 2 bots per table
+            if len(table_bots) < 2:
+                table_bots = rng.sample(available_bots, min(6, len(available_bots)))
+        else:
+            table_bots = rng.sample(available_bots, num_players)
+        
+        num_players = len(table_bots)
         
         # Send initial setup
         players_info = [
@@ -380,7 +437,7 @@ def live_stream():
         seed = int(time.time() * 1000) % 2_147_483_647
         starting_stack = 1000
         
-        yield f"data: {json.dumps({'type': 'init', 'players': players_info, 'starting_stack': starting_stack, 'seed': seed})}\n\n"
+        yield f"data: {json.dumps({'type': 'init', 'table_id': table_id, 'players': players_info, 'starting_stack': starting_stack, 'seed': seed})}\n\n"
         time.sleep(1)
         
         # Run multiple hands

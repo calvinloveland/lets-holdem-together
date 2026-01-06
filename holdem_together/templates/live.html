@@ -10,14 +10,35 @@
       <span class="live-indicator">● LIVE</span>
       <span class="broadcast-title">Hold 'Em Together Championship</span>
     </div>
-    <div class="broadcast-info">
-      <span id="hand-counter">Waiting to start...</span>
+    <div class="broadcast-controls">
+      {% if saved_username and user_bots %}
+      <button class="btn btn-find-my-bot" onclick="findMyBot()">
+        🔍 Find My Bot
+      </button>
+      {% endif %}
+      <span id="total-tables-info">{{ num_tables }} table{% if num_tables != 1 %}s{% endif %}</span>
     </div>
   </div>
 
-  <!-- Main Poker Table -->
-  <div class="poker-table-container">
-    <div class="poker-table">
+  <!-- Table Navigation -->
+  <div class="table-nav" id="table-nav">
+    {% for i in range(num_tables) %}
+    <button class="table-tab {% if i == 0 %}active{% endif %}" data-table-id="{{ i }}" onclick="switchToTable({{ i }})">
+      Table {{ i + 1 }}
+      <span class="table-status" id="table-status-{{ i }}">⏳</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- User's bot indicator (hidden by default) -->
+  <div class="my-bot-indicator" id="my-bot-indicator" style="display: none;">
+    <span class="my-bot-icon">⭐</span>
+    <span id="my-bot-text">Your bot is playing here!</span>
+  </div>
+
+  <!-- Main Poker Table (shows selected table) -->
+  <div class="poker-table-container" id="main-table-container">
+    <div class="poker-table" id="poker-table-main">
       <!-- Pot Display -->
       <div class="pot-display">
         <div class="pot-label">POT</div>
@@ -43,17 +64,39 @@
     </div>
   </div>
 
+  <!-- Mini Tables Overview -->
+  <div class="mini-tables-container" id="mini-tables-container">
+    <div class="mini-tables-header">
+      <span>📺 All Tables Overview</span>
+      <span class="mini-tables-hint">Click a table to watch</span>
+    </div>
+    <div class="mini-tables-grid" id="mini-tables-grid">
+      {% for i in range(num_tables) %}
+      <div class="mini-table" id="mini-table-{{ i }}" onclick="switchToTable({{ i }})">
+        <div class="mini-table-header">
+          <span class="mini-table-title">Table {{ i + 1 }}</span>
+          <span class="mini-table-status" id="mini-status-{{ i }}">Starting...</span>
+        </div>
+        <div class="mini-table-felt" id="mini-felt-{{ i }}">
+          <div class="mini-players" id="mini-players-{{ i }}"></div>
+          <div class="mini-pot" id="mini-pot-{{ i }}">🪙 0</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   <!-- Action Log / Commentary -->
   <div class="commentary-panel">
     <div class="commentary-header">
-      <span>📺 Live Commentary</span>
+      <span>📺 Live Commentary - <span id="commentary-table-label">Table 1</span></span>
       <span class="auto-play-badge">AUTO-PLAY</span>
     </div>
     <div class="commentary-log" id="commentary-log">
       <div class="commentary-entry welcome">
         Welcome to Hold 'Em Together Live! 
         {% if available_bots >= 2 %}
-          Matches run continuously — sit back and enjoy the show!
+          {{ num_tables }} table{% if num_tables != 1 %}s{% endif %} running with {{ available_bots }} bots — sit back and enjoy the show!
         {% else %}
           <span class="error-text">Need at least 2 valid bots to start a match. Create some bots first!</span>
         {% endif %}
@@ -90,6 +133,11 @@
 </div>
 
 <script>
+// Configuration
+const NUM_TABLES = {{ num_tables }};
+const USER_BOT_IDS = {{ user_bots | tojson }};
+const SAVED_USERNAME = {{ saved_username | tojson }};
+
 // Card rendering utilities
 const SUIT_SYMBOLS = {'c': '♣', 'd': '♦', 'h': '♥', 's': '♠'};
 const SUIT_COLORS = {'c': '#2d5016', 'd': '#0066cc', 'h': '#cc0000', 's': '#1a1a1a'};
@@ -120,18 +168,67 @@ const SEAT_POSITIONS = {
   6: [{x: 50, y: 92}, {x: 8, y: 65}, {x: 8, y: 25}, {x: 50, y: 5}, {x: 92, y: 25}, {x: 92, y: 65}]
 };
 
-let players = [];
-let currentPot = 0;
-let eventSource = null;
+// State for all tables
+let tableStates = {};
+let eventSources = {};
+let activeTableId = 0;
 
-function createPlayerSeats(playersInfo, startingStack) {
-  players = playersInfo;
+// Initialize state for each table
+for (let i = 0; i < NUM_TABLES; i++) {
+  tableStates[i] = {
+    players: [],
+    stacks: [],
+    pot: 0,
+    handNum: 0,
+    status: 'waiting',
+    hasUserBot: false
+  };
+}
+
+function createPlayerSeats(tableId, playersInfo, startingStack) {
+  tableStates[tableId].players = playersInfo;
+  tableStates[tableId].stacks = playersInfo.map(() => startingStack);
+  
+  // Check if user's bot is at this table
+  const userBotAtTable = playersInfo.find(p => USER_BOT_IDS.includes(p.bot_id));
+  tableStates[tableId].hasUserBot = !!userBotAtTable;
+  
+  // Update mini table players list
+  updateMiniTablePlayers(tableId, playersInfo);
+  
+  // If this is the active table, render to main view
+  if (tableId === activeTableId) {
+    renderMainTable(tableId, startingStack);
+    
+    // Show "my bot" indicator if applicable
+    if (userBotAtTable) {
+      showMyBotIndicator(userBotAtTable.name);
+    } else {
+      hideMyBotIndicator();
+    }
+  }
+  
+  // Update table tab to show user's bot indicator
+  if (userBotAtTable) {
+    const tab = document.querySelector(`.table-tab[data-table-id="${tableId}"]`);
+    if (tab && !tab.querySelector('.my-bot-star')) {
+      const star = document.createElement('span');
+      star.className = 'my-bot-star';
+      star.textContent = '⭐';
+      star.title = `Your bot "${userBotAtTable.name}" is here`;
+      tab.appendChild(star);
+    }
+  }
+}
+
+function renderMainTable(tableId, startingStack) {
+  const playersInfo = tableStates[tableId].players;
   const container = document.getElementById('player-seats');
   container.innerHTML = '';
   
-  const positions = SEAT_POSITIONS[players.length] || SEAT_POSITIONS[6];
+  const positions = SEAT_POSITIONS[playersInfo.length] || SEAT_POSITIONS[6];
   
-  players.forEach((p, i) => {
+  playersInfo.forEach((p, i) => {
     const pos = positions[i] || {x: 50, y: 50};
     const seat = document.createElement('div');
     seat.className = 'player-seat';
@@ -139,11 +236,15 @@ function createPlayerSeats(playersInfo, startingStack) {
     seat.style.left = `${pos.x}%`;
     seat.style.top = `${pos.y}%`;
     
+    const isUserBot = USER_BOT_IDS.includes(p.bot_id);
+    const userBotClass = isUserBot ? ' my-bot' : '';
+    
     seat.innerHTML = `
       <div class="player-cards" id="cards-${i}">
         ${renderCardBack()}${renderCardBack()}
       </div>
-      <div class="player-info">
+      <div class="player-info${userBotClass}">
+        ${isUserBot ? '<span class="my-bot-badge">⭐</span>' : ''}
         <div class="player-name">${p.name}</div>
         <div class="player-user">by ${p.user}</div>
         <div class="player-stack" id="stack-${i}">🪙 ${startingStack}</div>
@@ -156,17 +257,36 @@ function createPlayerSeats(playersInfo, startingStack) {
   });
 }
 
-function updateStacks(stacks) {
-  stacks.forEach((stack, i) => {
-    const el = document.getElementById(`stack-${i}`);
-    if (el) {
-      el.textContent = `🪙 ${stack}`;
-      el.className = 'player-stack' + (stack === 0 ? ' busted' : '');
-    }
+function updateMiniTablePlayers(tableId, playersInfo) {
+  const container = document.getElementById(`mini-players-${tableId}`);
+  if (!container) return;
+  
+  let html = '';
+  playersInfo.forEach(p => {
+    const isUserBot = USER_BOT_IDS.includes(p.bot_id);
+    html += `<div class="mini-player${isUserBot ? ' my-bot' : ''}">${p.name.substring(0, 8)}</div>`;
   });
+  container.innerHTML = html;
 }
 
-function setDealer(seat) {
+function updateStacks(tableId, stacks) {
+  tableStates[tableId].stacks = stacks;
+  
+  if (tableId === activeTableId) {
+    stacks.forEach((stack, i) => {
+      const el = document.getElementById(`stack-${i}`);
+      if (el) {
+        el.textContent = `🪙 ${stack}`;
+        el.className = 'player-stack' + (stack === 0 ? ' busted' : '');
+      }
+    });
+  }
+}
+
+function setDealer(tableId, seat) {
+  if (tableId !== activeTableId) return;
+  
+  const players = tableStates[tableId].players;
   const btn = document.getElementById('dealer-button');
   const positions = SEAT_POSITIONS[players.length] || SEAT_POSITIONS[6];
   const pos = positions[seat];
@@ -177,7 +297,9 @@ function setDealer(seat) {
   }
 }
 
-function showAction(seat, actionType, amount) {
+function showAction(tableId, seat, actionType, amount) {
+  if (tableId !== activeTableId) return;
+  
   const el = document.getElementById(`action-${seat}`);
   if (!el) return;
   
@@ -220,7 +342,10 @@ function showAction(seat, actionType, amount) {
   }, 2000);
 }
 
-function clearAllActions() {
+function clearAllActions(tableId) {
+  if (tableId !== activeTableId) return;
+  
+  const players = tableStates[tableId].players;
   players.forEach((_, i) => {
     const el = document.getElementById(`action-${i}`);
     if (el) {
@@ -230,7 +355,9 @@ function clearAllActions() {
   });
 }
 
-function updateCommunityCards(cards) {
+function updateCommunityCards(tableId, cards) {
+  if (tableId !== activeTableId) return;
+  
   const container = document.getElementById('community-cards');
   let html = '';
   
@@ -247,7 +374,9 @@ function updateCommunityCards(cards) {
   container.innerHTML = html;
 }
 
-function resetCommunityCards() {
+function resetCommunityCards(tableId) {
+  if (tableId !== activeTableId) return;
+  
   const container = document.getElementById('community-cards');
   container.innerHTML = `
     <div class="playing-card card-placeholder"></div>
@@ -258,7 +387,9 @@ function resetCommunityCards() {
   `;
 }
 
-function revealHoleCards(holeCards) {
+function revealHoleCards(tableId, holeCards) {
+  if (tableId !== activeTableId) return;
+  
   holeCards.forEach((cards, seat) => {
     const el = document.getElementById(`cards-${seat}`);
     if (el && cards && cards.length === 2) {
@@ -267,7 +398,10 @@ function revealHoleCards(holeCards) {
   });
 }
 
-function hideAllHoleCards() {
+function hideAllHoleCards(tableId) {
+  if (tableId !== activeTableId) return;
+  
+  const players = tableStates[tableId].players;
   players.forEach((_, i) => {
     const el = document.getElementById(`cards-${i}`);
     if (el) {
@@ -276,21 +410,28 @@ function hideAllHoleCards() {
   });
 }
 
-function markFolded(seat) {
+function markFolded(tableId, seat) {
+  if (tableId !== activeTableId) return;
+  
   const seatEl = document.getElementById(`seat-${seat}`);
   if (seatEl) {
     seatEl.classList.add('folded');
   }
 }
 
-function clearFolded() {
+function clearFolded(tableId) {
+  if (tableId !== activeTableId) return;
+  
+  const players = tableStates[tableId].players;
   players.forEach((_, i) => {
     const seatEl = document.getElementById(`seat-${i}`);
     if (seatEl) seatEl.classList.remove('folded');
   });
 }
 
-function highlightWinners(winners) {
+function highlightWinners(tableId, winners) {
+  if (tableId !== activeTableId) return;
+  
   winners.forEach(seat => {
     const seatEl = document.getElementById(`seat-${seat}`);
     if (seatEl) {
@@ -299,19 +440,33 @@ function highlightWinners(winners) {
   });
 }
 
-function clearWinnerHighlight() {
+function clearWinnerHighlight(tableId) {
+  if (tableId !== activeTableId) return;
+  
+  const players = tableStates[tableId].players;
   players.forEach((_, i) => {
     const seatEl = document.getElementById(`seat-${i}`);
     if (seatEl) seatEl.classList.remove('winner');
   });
 }
 
-function updatePot(amount) {
-  currentPot = amount;
-  document.getElementById('pot-amount').textContent = amount;
+function updatePot(tableId, amount) {
+  tableStates[tableId].pot = amount;
+  
+  // Update mini table pot
+  const miniPot = document.getElementById(`mini-pot-${tableId}`);
+  if (miniPot) {
+    miniPot.textContent = `🪙 ${amount}`;
+  }
+  
+  if (tableId === activeTableId) {
+    document.getElementById('pot-amount').textContent = amount;
+  }
 }
 
-function addCommentary(message, type = 'normal') {
+function addCommentary(tableId, message, type = 'normal') {
+  if (tableId !== activeTableId) return;
+  
   const log = document.getElementById('commentary-log');
   const entry = document.createElement('div');
   entry.className = `commentary-entry ${type}`;
@@ -325,7 +480,38 @@ function clearCommentary() {
   log.innerHTML = '';
 }
 
-function showStandings(standings, winner) {
+function updateTableStatus(tableId, status) {
+  tableStates[tableId].status = status;
+  
+  const statusEl = document.getElementById(`table-status-${tableId}`);
+  const miniStatusEl = document.getElementById(`mini-status-${tableId}`);
+  
+  let emoji = '⏳';
+  let text = status;
+  
+  switch(status) {
+    case 'playing':
+      emoji = '🎴';
+      text = `Hand ${tableStates[tableId].handNum}`;
+      break;
+    case 'complete':
+      emoji = '🏆';
+      text = 'Complete';
+      break;
+    case 'error':
+      emoji = '❌';
+      break;
+    default:
+      emoji = '⏳';
+  }
+  
+  if (statusEl) statusEl.textContent = emoji;
+  if (miniStatusEl) miniStatusEl.textContent = text;
+}
+
+function showStandings(tableId, standings, winner) {
+  if (tableId !== activeTableId) return;
+  
   const panel = document.getElementById('standings-panel');
   const list = document.getElementById('standings-list');
   
@@ -355,16 +541,28 @@ function showStandings(standings, winner) {
   panel.style.display = 'block';
 }
 
-function showHandWinnerPopup(winnerName, amount) {
+function showHandWinnerPopup(tableId, winnerName, amount) {
+  if (tableId !== activeTableId) return;
+  
   const popup = document.getElementById('hand-winner-popup');
   const text = document.getElementById('hand-winner-text');
   text.textContent = `${winnerName} wins ${amount}!`;
   popup.style.display = 'flex';
   
-  // Hide after 2.5 seconds
   setTimeout(() => {
     popup.style.display = 'none';
   }, 2500);
+}
+
+function showMyBotIndicator(botName) {
+  const indicator = document.getElementById('my-bot-indicator');
+  const text = document.getElementById('my-bot-text');
+  text.textContent = `Your bot "${botName}" is playing at this table!`;
+  indicator.style.display = 'flex';
+}
+
+function hideMyBotIndicator() {
+  document.getElementById('my-bot-indicator').style.display = 'none';
 }
 
 // Confetti animation
@@ -395,7 +593,7 @@ function launchConfetti() {
   }
   
   let frame = 0;
-  const maxFrames = 300; // ~5 seconds at 60fps
+  const maxFrames = 300;
   
   function animate() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -427,99 +625,138 @@ function launchConfetti() {
 
 function hideStandings() {
   document.getElementById('standings-panel').style.display = 'none';
-  // Also hide confetti if it's still showing
   const canvas = document.getElementById('confetti-canvas');
   if (canvas) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     canvas.style.display = 'none';
   }
-  // Hide hand winner popup
   document.getElementById('hand-winner-popup').style.display = 'none';
 }
 
-function startLiveMatch() {
-  // Close existing connection
-  if (eventSource) {
-    eventSource.close();
+function switchToTable(tableId) {
+  if (tableId === activeTableId) return;
+  
+  // Update active state
+  const oldTab = document.querySelector(`.table-tab[data-table-id="${activeTableId}"]`);
+  const newTab = document.querySelector(`.table-tab[data-table-id="${tableId}"]`);
+  if (oldTab) oldTab.classList.remove('active');
+  if (newTab) newTab.classList.add('active');
+  
+  // Update mini table highlights
+  const oldMini = document.getElementById(`mini-table-${activeTableId}`);
+  const newMini = document.getElementById(`mini-table-${tableId}`);
+  if (oldMini) oldMini.classList.remove('active');
+  if (newMini) newMini.classList.add('active');
+  
+  activeTableId = tableId;
+  
+  // Update commentary label
+  document.getElementById('commentary-table-label').textContent = `Table ${tableId + 1}`;
+  
+  // Refresh main table display
+  const state = tableStates[tableId];
+  if (state.players.length > 0) {
+    renderMainTable(tableId, 1000);
+    updateStacks(tableId, state.stacks);
+    updatePot(tableId, state.pot);
+    
+    if (state.hasUserBot) {
+      const userBot = state.players.find(p => USER_BOT_IDS.includes(p.bot_id));
+      if (userBot) showMyBotIndicator(userBot.name);
+    } else {
+      hideMyBotIndicator();
+    }
   }
   
-  // Reset UI
+  // Hide standings when switching tables
   hideStandings();
   clearCommentary();
-  resetCommunityCards();
-  updatePot(0);
-  document.getElementById('hand-counter').textContent = 'Starting...';
+  addCommentary(tableId, `📺 Switched to Table ${tableId + 1}`, 'important');
+}
+
+function findMyBot() {
+  // Find first table with user's bot
+  for (let i = 0; i < NUM_TABLES; i++) {
+    if (tableStates[i].hasUserBot) {
+      switchToTable(i);
+      return;
+    }
+  }
   
-  addCommentary('🎬 <strong>Match starting!</strong> Selecting random bots...', 'important');
+  // If no table found yet, show message
+  alert('Your bot is not currently playing. Tables are still initializing or your bot may not be submitted.');
+}
+
+function startTableStream(tableId) {
+  // Close existing connection for this table
+  if (eventSources[tableId]) {
+    eventSources[tableId].close();
+  }
   
   let runningPot = 0;
   
-  eventSource = new EventSource('/live/stream');
+  eventSources[tableId] = new EventSource(`/live/stream/${tableId}`);
   
-  eventSource.onmessage = function(event) {
+  eventSources[tableId].onmessage = function(event) {
     const data = JSON.parse(event.data);
     
     switch(data.type) {
       case 'init':
-        createPlayerSeats(data.players, data.starting_stack);
-        addCommentary(`🎲 <strong>${data.players.length} players</strong> take their seats at the table!`, 'important');
+        createPlayerSeats(tableId, data.players, data.starting_stack);
+        updateTableStatus(tableId, 'playing');
+        addCommentary(tableId, `🎲 <strong>${data.players.length} players</strong> at Table ${tableId + 1}!`, 'important');
         data.players.forEach(p => {
-          addCommentary(`Seat ${p.seat}: <strong>${p.name}</strong> by ${p.user}`);
+          addCommentary(tableId, `Seat ${p.seat}: <strong>${p.name}</strong> by ${p.user}`);
         });
         break;
       
       case 'hole_cards':
-        // Reveal hole cards at start of hand (TV poker style)
-        revealHoleCards(data.hole_cards);
-        addCommentary('🂴 Cards dealt! Let\'s see what everyone has...', 'board');
+        revealHoleCards(tableId, data.hole_cards);
+        addCommentary(tableId, '🂴 Cards dealt! Let\'s see what everyone has...', 'board');
         break;
         
       case 'new_hand':
-        clearFolded();
-        clearWinnerHighlight();
-        hideAllHoleCards();
-        resetCommunityCards();
-        clearAllActions();
+        tableStates[tableId].handNum = data.hand_num;
+        clearFolded(tableId);
+        clearWinnerHighlight(tableId);
+        hideAllHoleCards(tableId);
+        resetCommunityCards(tableId);
+        clearAllActions(tableId);
         runningPot = 0;
-        updatePot(0);
-        setDealer(data.dealer_seat);
-        updateStacks(data.stacks);
-        document.getElementById('hand-counter').textContent = `Hand ${data.hand_num} of ${data.total_hands}`;
-        addCommentary(`<hr><strong>🃏 Hand ${data.hand_num}</strong> — Dealer: ${players[data.dealer_seat]?.name || 'Seat ' + data.dealer_seat}`, 'hand-start');
+        updatePot(tableId, 0);
+        setDealer(tableId, data.dealer_seat);
+        updateStacks(tableId, data.stacks);
+        updateTableStatus(tableId, 'playing');
+        
+        const players = tableStates[tableId].players;
+        addCommentary(tableId, `<hr><strong>🃏 Hand ${data.hand_num}</strong> — Dealer: ${players[data.dealer_seat]?.name || 'Seat ' + data.dealer_seat}`, 'hand-start');
         break;
         
       case 'board':
-        updateCommunityCards(data.cards);
+        updateCommunityCards(tableId, data.cards);
         const streetName = data.street.charAt(0).toUpperCase() + data.street.slice(1);
-        const cardStrs = data.cards.slice(-3).map(c => {
-          const rank = c[0] === 'T' ? '10' : c[0];
-          const suit = SUIT_SYMBOLS[c[1]] || c[1];
-          return rank + suit;
-        });
         if (data.street === 'flop') {
-          addCommentary(`🎴 <strong>FLOP:</strong> ${data.cards.map(c => (c[0] === 'T' ? '10' : c[0]) + (SUIT_SYMBOLS[c[1]] || c[1])).join(' ')}`, 'board');
+          addCommentary(tableId, `🎴 <strong>FLOP:</strong> ${data.cards.map(c => (c[0] === 'T' ? '10' : c[0]) + (SUIT_SYMBOLS[c[1]] || c[1])).join(' ')}`, 'board');
         } else {
           const lastCard = data.cards[data.cards.length - 1];
-          addCommentary(`🎴 <strong>${streetName.toUpperCase()}:</strong> ${(lastCard[0] === 'T' ? '10' : lastCard[0])}${SUIT_SYMBOLS[lastCard[1]] || lastCard[1]}`, 'board');
+          addCommentary(tableId, `🎴 <strong>${streetName.toUpperCase()}:</strong> ${(lastCard[0] === 'T' ? '10' : lastCard[0])}${SUIT_SYMBOLS[lastCard[1]] || lastCard[1]}`, 'board');
         }
         break;
         
       case 'action':
-        showAction(data.seat, data.action_type, data.amount);
+        showAction(tableId, data.seat, data.action_type, data.amount);
         
-        // Update running pot estimate
         if (data.amount && ['call', 'raise', 'post_sb', 'post_bb'].includes(data.action_type)) {
           runningPot += data.amount;
-          updatePot(runningPot);
+          updatePot(tableId, runningPot);
         }
         
-        // Commentary
         let actionText = '';
         switch(data.action_type) {
           case 'fold':
             actionText = `${data.player} <span class="action-text fold">FOLDS</span>`;
-            markFolded(data.seat);
+            markFolded(tableId, data.seat);
             break;
           case 'check':
             actionText = `${data.player} <span class="action-text check">checks</span>`;
@@ -539,83 +776,93 @@ function startLiveMatch() {
           default:
             actionText = `${data.player} ${data.action_type} ${data.amount || ''}`;
         }
-        addCommentary(actionText);
+        addCommentary(tableId, actionText);
         break;
         
       case 'showdown':
-        revealHoleCards(data.hole_cards);
-        addCommentary('👁️ <strong>SHOWDOWN!</strong> Cards revealed...', 'showdown');
+        revealHoleCards(tableId, data.hole_cards);
+        addCommentary(tableId, '👁️ <strong>SHOWDOWN!</strong> Cards revealed...', 'showdown');
         break;
         
       case 'hand_result':
-        highlightWinners(data.winners);
-        updateStacks(data.final_stacks);
+        highlightWinners(tableId, data.winners);
+        updateStacks(tableId, data.final_stacks);
         
-        // Show winner popup
-        const winnerNames = data.winner_names || data.winners.map(s => players[s]?.name || `Seat ${s}`);
+        const winnerNames = data.winner_names || data.winners.map(s => tableStates[tableId].players[s]?.name || `Seat ${s}`);
         const totalPot = data.total_pot || data.delta_stacks.filter(d => d > 0).reduce((a, b) => a + b, 0);
-        showHandWinnerPopup(winnerNames.join(' & '), totalPot);
+        showHandWinnerPopup(tableId, winnerNames.join(' & '), totalPot);
         
-        addCommentary(`🏆 <strong>${winnerNames.join(' & ')}</strong> wins ${totalPot} chips!`, 'winner');
+        addCommentary(tableId, `🏆 <strong>${winnerNames.join(' & ')}</strong> wins ${totalPot} chips!`, 'winner');
         break;
         
       case 'match_complete':
-        addCommentary('<hr>🎊 <strong>MATCH COMPLETE!</strong>', 'important');
-        showStandings(data.standings, data.winner);
-        document.getElementById('hand-counter').textContent = 'Match Complete!';
-        eventSource.close();
-        // Start confetti and then countdown
-        launchConfetti();
-        startCountdown(8);
+        addCommentary(tableId, '<hr>🎊 <strong>MATCH COMPLETE!</strong>', 'important');
+        showStandings(tableId, data.standings, data.winner);
+        updateTableStatus(tableId, 'complete');
+        
+        if (tableId === activeTableId) {
+          launchConfetti();
+        }
+        
+        eventSources[tableId].close();
+        
+        // Restart this table after countdown
+        setTimeout(() => {
+          startTableStream(tableId);
+        }, 8000);
         break;
         
       case 'error':
-        addCommentary(`❌ Error: ${data.message}`, 'error');
-        eventSource.close();
-        // Retry after a delay on error
-        setTimeout(startLiveMatch, 5000);
+        addCommentary(tableId, `❌ Error: ${data.message}`, 'error');
+        updateTableStatus(tableId, 'error');
+        eventSources[tableId].close();
+        setTimeout(() => startTableStream(tableId), 5000);
         break;
     }
   };
   
-  eventSource.onerror = function(e) {
-    console.error('EventSource error:', e);
-    addCommentary('❌ Connection lost. Reconnecting...', 'error');
-    eventSource.close();
-    // Auto-retry on connection error
-    setTimeout(startLiveMatch, 3000);
+  eventSources[tableId].onerror = function(e) {
+    console.error(`Table ${tableId} EventSource error:`, e);
+    updateTableStatus(tableId, 'error');
+    eventSources[tableId].close();
+    setTimeout(() => startTableStream(tableId), 3000);
   };
 }
 
-function startCountdown(seconds) {
-  const countdownEl = document.getElementById('countdown');
-  let remaining = seconds;
+function startAllTables() {
+  // Reset UI
+  hideStandings();
+  clearCommentary();
+  document.getElementById('pot-amount').textContent = '0';
   
-  countdownEl.textContent = remaining;
+  addCommentary(0, '🎬 <strong>Starting all tables!</strong>', 'important');
   
-  const interval = setInterval(() => {
-    remaining--;
-    countdownEl.textContent = remaining;
-    
-    if (remaining <= 0) {
-      clearInterval(interval);
-      startLiveMatch();
-    }
-  }, 1000);
+  // Start all table streams with slight delay between each
+  for (let i = 0; i < NUM_TABLES; i++) {
+    setTimeout(() => {
+      startTableStream(i);
+    }, i * 500); // Stagger starts by 500ms
+  }
 }
 
 // Clean up on page unload
 window.addEventListener('beforeunload', function() {
-  if (eventSource) {
-    eventSource.close();
+  for (let i = 0; i < NUM_TABLES; i++) {
+    if (eventSources[i]) {
+      eventSources[i].close();
+    }
   }
 });
 
 // Auto-start on page load
 {% if available_bots >= 2 %}
 window.addEventListener('DOMContentLoaded', function() {
+  // Set first mini-table as active
+  const firstMini = document.getElementById('mini-table-0');
+  if (firstMini) firstMini.classList.add('active');
+  
   // Small delay to let page render
-  setTimeout(startLiveMatch, 500);
+  setTimeout(startAllTables, 500);
 });
 {% endif %}
 </script>

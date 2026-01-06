@@ -268,6 +268,37 @@ tbody tr:last-child td {
   color: var(--text-muted);
 }
 
+/* Status indicators for leaderboard */
+.status-valid {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.status-submitted {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.status-invalid {
+  color: var(--error);
+  font-weight: 500;
+}
+
+.status-draft {
+  color: var(--text-muted);
+}
+
+/* Chip value styling */
+.chip-positive {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.chip-negative {
+  color: var(--error);
+  font-weight: 600;
+}
+
 /* Forms */
 input[type="text"],
 input[type="number"],
@@ -1434,3 +1465,252 @@ code {
     height: 200px;
   }
 }
+
+/* ==========================================
+   MULTI-TABLE LIVE VIEW STYLES
+   ========================================== */
+
+/* Broadcast Controls */
+.broadcast-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+#total-tables-info {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.btn-find-my-bot {
+  background: linear-gradient(135deg, #ffd700 0%, #ffb347 100%);
+  color: #1a1a1a;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.btn-find-my-bot:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+}
+
+/* Table Navigation Tabs */
+.table-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius);
+}
+
+.table-tab {
+  padding: 10px 18px;
+  border: 2px solid var(--border);
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-tab:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.table-tab.active {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: white;
+  border-color: var(--primary-dark);
+}
+
+.table-status {
+  font-size: 14px;
+}
+
+.my-bot-star {
+  font-size: 12px;
+  animation: star-pulse 2s infinite;
+}
+
+@keyframes star-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.2); }
+}
+
+/* My Bot Indicator */
+.my-bot-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #ffd700 0%, #ffb347 100%);
+  color: #1a1a1a;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-weight: 600;
+  animation: indicator-glow 2s infinite alternate;
+}
+
+@keyframes indicator-glow {
+  0% { box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3); }
+  100% { box-shadow: 0 4px 25px rgba(255, 215, 0, 0.6); }
+}
+
+.my-bot-icon {
+  font-size: 1.2rem;
+}
+
+/* Player seat "my bot" highlight */
+.player-info.my-bot {
+  border: 2px solid #ffd700;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+}
+
+.my-bot-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 14px;
+}
+
+/* Mini Tables Container */
+.mini-tables-container {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.mini-tables-header {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: white;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.mini-tables-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mini-tables-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.mini-table {
+  background: #1a1a2e;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.mini-table:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
+
+.mini-table.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+}
+
+.mini-table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mini-table-title {
+  font-weight: 600;
+  color: white;
+  font-size: 12px;
+}
+
+.mini-table-status {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mini-table-felt {
+  background: radial-gradient(ellipse at center, #1e5631 0%, #145a32 50%, #0d3d22 100%);
+  padding: 16px 12px;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mini-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.mini-player {
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.mini-player.my-bot {
+  background: linear-gradient(135deg, #ffd700 0%, #ffb347 100%);
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.mini-pot {
+  color: #ffd700;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Responsive adjustments for multi-table */
+@media (max-width: 768px) {
+  .table-nav {
+    justify-content: center;
+  }
+  
+  .table-tab {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  
+  .mini-tables-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  
+  .broadcast-controls {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
