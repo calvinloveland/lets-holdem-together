@@ -30,6 +30,7 @@ tests/test_engine_comprehensive.py
 tests/test_engine_smoke.py
 tests/test_game_state.py
 tests/test_match_routes_smoke.py
+tests/test_poker_edge_cases.py
 tests/test_poker_eval.py
 tests/test_poker_eval_comprehensive.py
 tests/test_ratings_comprehensive.py
